@@ -20,18 +20,43 @@ Skills are reusable instruction sets (SKILL.md files) that teach AI assistants h
 |-------|-------------|-------|
 | [databricks-mosaic-ai-agents](./skills/databricks-mosaic-ai-agents/) | Build and deploy custom AI agents on Databricks using Mosaic AI with LangGraph or LangChain | MLflow tracing, Unity Catalog tools, Vector Search, Asset Bundle job deployment |
 
-## How to Use a Skill
+## Installation
 
-### Claude Code / Claude Desktop
-1. Download the skill folder
-2. Zip the folder
-3. Upload via **Settings > Capabilities > Skills**
+The installer automatically downloads our skills **and all dependencies** (databricks ai-dev-kit skills + langchain-skills).
 
-### VS Code / GitHub Copilot
-- Copy the skill content to `.github/copilot-instructions.md`
+### Quick install (Claude Code — project scope)
+```bash
+bash <(curl -sL https://raw.githubusercontent.com/alessandro9110/agent-skills/main/install.sh)
+```
 
-### Cursor
-- Add skill content to `.cursor/rules/<skill-name>.mdc`
+### Install for multiple tools
+```bash
+# Clone and run with options
+git clone https://github.com/alessandro9110/agent-skills
+cd agent-skills
+bash install.sh --tools claude,cursor,copilot
+```
+
+### Options
+```
+--global, -g         Install globally (~/.claude/skills, ~/.cursor/rules, etc.)
+--tools, -t TOOLS    Tools to install for: claude,cursor,copilot (default: claude)
+--yes, -y            Skip confirmation prompts
+```
+
+### What gets installed
+| Skill | Source |
+|-------|--------|
+| `azure-ai-foundry-agents` | This repo |
+| `databricks-mosaic-ai-agents` | This repo |
+| `databricks-asset-bundles` | databricks-solutions/ai-dev-kit |
+| `databricks-model-serving` | databricks-solutions/ai-dev-kit |
+| `databricks-vector-search` | databricks-solutions/ai-dev-kit |
+| `databricks-mlflow-evaluation` | databricks-solutions/ai-dev-kit |
+| `langgraph-fundamentals` | langchain-ai/langchain-skills |
+| `langgraph-persistence` | langchain-ai/langchain-skills |
+| `langchain-fundamentals` | langchain-ai/langchain-skills |
+| `framework-selection` | langchain-ai/langchain-skills |
 
 ## Contributing
 
