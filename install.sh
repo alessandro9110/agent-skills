@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Agent Skills Installer
-# Installs skills + all required dependencies (databricks ai-dev-kit, langchain-skills)
+# Installs our skills + all external dependencies declared in each SKILL.md frontmatter.
 # Usage: bash install.sh [--global] [--tools claude,cursor,copilot] [--yes]
 
 set -e
@@ -14,7 +14,7 @@ error()   { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
 
 # ── Defaults ─────────────────────────────────────────────────────────────────
 GLOBAL=false
-TOOLS="claude"        # comma-separated: claude,cursor,copilot
+TOOLS="claude"
 AUTO_YES=false
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -29,12 +29,18 @@ while [[ $# -gt 0 ]]; do
       echo ""
       echo "Options:"
       echo "  --global, -g         Install globally (~/.claude/skills, ~/.cursor/rules, etc.)"
-      echo "  --tools, -t TOOLS    Comma-separated list of tools: claude,cursor,copilot (default: claude)"
+      echo "  --tools, -t TOOLS    Comma-separated: claude,cursor,copilot (default: claude)"
       echo "  --yes, -y            Skip confirmation prompts"
       exit 0 ;;
     *) warn "Unknown option: $1"; shift ;;
   esac
 done
+
+# ── Check dependencies ───────────────────────────────────────────────────────
+command -v curl >/dev/null 2>&1 || error "curl is required but not installed."
+
+# python3 needed to parse YAML frontmatter
+command -v python3 >/dev/null 2>&1 || error "python3 is required but not installed."
 
 # ── Resolve target directories ───────────────────────────────────────────────
 declare -A SKILL_DIRS
@@ -59,22 +65,108 @@ for tool in "${TOOL_LIST[@]}"; do
   fi
 done
 
-if [ ${#SKILL_DIRS[@]} -eq 0 ]; then
-  error "No valid tools specified."
-fi
+[ ${#SKILL_DIRS[@]} -eq 0 ] && error "No valid tools specified."
+
+# ── Parse dependencies from SKILL.md frontmatter ─────────────────────────────
+# Returns a list of "name|raw_base|file1,file2,..." lines
+parse_dependencies() {
+  local skill_md="$1"
+  python3 - "$skill_md" <<'EOF'
+import sys, re
+
+with open(sys.argv[1]) as f:
+    content = f.read()
+
+# Extract YAML frontmatter between --- delimiters
+match = re.match(r'^---\n(.*?)\n---', content, re.DOTALL)
+if not match:
+    sys.exit(0)
+
+yaml_block = match.group(1)
+
+# Simple parser for the dependencies block
+in_deps = False
+in_dep = False
+deps = []
+current = {}
+
+for line in yaml_block.split('\n'):
+    stripped = line.strip()
+
+    if stripped == 'dependencies:':
+        in_deps = True
+        continue
+
+    if in_deps:
+        # New dependency item
+        if re.match(r'^    - name:', line):
+            if current:
+                deps.append(current)
+            current = {}
+            current['name'] = stripped.split('name:')[1].strip()
+        elif re.match(r'^      name:', line):
+            current['name'] = stripped.split('name:')[1].strip()
+        elif 'raw_base:' in line:
+            current['raw_base'] = stripped.split('raw_base:')[1].strip()
+        elif 'files:' in line:
+            files_str = stripped.split('files:')[1].strip()
+            files_str = files_str.strip('[]')
+            current['files'] = [f.strip() for f in files_str.split(',')]
+        elif stripped and not stripped.startswith('#') and ':' in stripped:
+            key = stripped.split(':')[0].strip()
+            if key not in ('name', 'repo', 'raw_base', 'files') and in_dep:
+                in_deps = False
+
+if current:
+    deps.append(current)
+
+for dep in deps:
+    name = dep.get('name', '')
+    raw_base = dep.get('raw_base', '')
+    files = ','.join(dep.get('files', ['SKILL.md']))
+    if name and raw_base:
+        print(f"{name}|{raw_base}|{files}")
+EOF
+}
+
+# ── Collect all skills and their dependencies ─────────────────────────────────
+declare -A ALL_DEPS   # dep_name -> "raw_base|files"
+
+info "Scanning skills for dependencies..."
+
+for skill_dir in "$SCRIPT_DIR/skills"/*/; do
+  skill_name=$(basename "$skill_dir")
+  skill_md="$skill_dir/SKILL.md"
+
+  [ -f "$skill_md" ] || continue
+
+  while IFS='|' read -r dep_name raw_base files; do
+    [ -z "$dep_name" ] && continue
+    ALL_DEPS["$dep_name"]="$raw_base|$files"
+    info "  Found dependency: $dep_name (from $skill_name)"
+  done < <(parse_dependencies "$skill_md")
+done
 
 # ── Summary ──────────────────────────────────────────────────────────────────
+OUR_SKILLS=()
+for skill_dir in "$SCRIPT_DIR/skills"/*/; do
+  OUR_SKILLS+=("$(basename "$skill_dir")")
+done
+
 echo ""
 echo -e "${BLUE}╔════════════════════════════════════════════╗${NC}"
 echo -e "${BLUE}║         Agent Skills Installer             ║${NC}"
 echo -e "${BLUE}╚════════════════════════════════════════════╝${NC}"
 echo ""
-echo "Skills to install:"
-echo "  • Our skills:             azure-ai-foundry-agents, databricks-mosaic-ai-agents"
-echo "  • From databricks/ai-dev-kit: databricks-asset-bundles, databricks-model-serving"
-echo "    + databricks-vector-search, databricks-mlflow-evaluation"
-echo "  • From langchain-ai/langchain-skills: langgraph-fundamentals, langgraph-persistence,"
-echo "    langchain-fundamentals, framework-selection"
+echo "Our skills (${#OUR_SKILLS[@]}):"
+for s in "${OUR_SKILLS[@]}"; do echo "  • $s"; done
+
+if [ ${#ALL_DEPS[@]} -gt 0 ]; then
+  echo ""
+  echo "External dependencies (${#ALL_DEPS[@]}):"
+  for dep in "${!ALL_DEPS[@]}"; do echo "  • $dep"; done
+fi
+
 echo ""
 echo "Install locations:"
 for tool in "${!SKILL_DIRS[@]}"; do
@@ -92,10 +184,7 @@ install_local_skill() {
   local skill_name="$1"
   local skill_src="$SCRIPT_DIR/skills/$skill_name"
 
-  if [ ! -d "$skill_src" ]; then
-    warn "Local skill not found: $skill_name — skipping"
-    return
-  fi
+  [ -d "$skill_src" ] || { warn "Local skill not found: $skill_name — skipping"; return; }
 
   for tool in "${!SKILL_DIRS[@]}"; do
     local dest="${SKILL_DIRS[$tool]}/$skill_name"
@@ -107,19 +196,22 @@ install_local_skill() {
 
 install_remote_skill() {
   local skill_name="$1"
-  local raw_base_url="$2"    # raw.githubusercontent.com base URL for skill folder
-  local files=("${@:3}")     # list of files to download (relative to skill folder)
+  local raw_base="$2"
+  local files_csv="$3"
+
+  IFS=',' read -ra files <<< "$files_csv"
 
   for tool in "${!SKILL_DIRS[@]}"; do
     local dest="${SKILL_DIRS[$tool]}/$skill_name"
     mkdir -p "$dest"
 
     for file in "${files[@]}"; do
+      file=$(echo "$file" | tr -d ' ')
       local dir
       dir="$(dirname "$file")"
       [ "$dir" != "." ] && mkdir -p "$dest/$dir"
 
-      local url="$raw_base_url/$file"
+      local url="$raw_base/$file"
       if curl -fsSL "$url" -o "$dest/$file" 2>/dev/null; then
         :
       else
@@ -133,52 +225,19 @@ install_remote_skill() {
 # ── Install our skills ───────────────────────────────────────────────────────
 echo ""
 info "Installing our skills..."
-install_local_skill "azure-ai-foundry-agents"
-install_local_skill "databricks-mosaic-ai-agents"
+for skill_name in "${OUR_SKILLS[@]}"; do
+  install_local_skill "$skill_name"
+done
 
-# ── Install from databricks-solutions/ai-dev-kit ─────────────────────────────
-echo ""
-info "Installing dependencies from databricks-solutions/ai-dev-kit..."
-
-DBRX_RAW="https://raw.githubusercontent.com/databricks-solutions/ai-dev-kit/main/databricks-skills"
-
-install_remote_skill "databricks-asset-bundles" \
-  "$DBRX_RAW/databricks-asset-bundles" \
-  "SKILL.md"
-
-install_remote_skill "databricks-model-serving" \
-  "$DBRX_RAW/databricks-model-serving" \
-  "SKILL.md"
-
-install_remote_skill "databricks-vector-search" \
-  "$DBRX_RAW/databricks-vector-search" \
-  "SKILL.md"
-
-install_remote_skill "databricks-mlflow-evaluation" \
-  "$DBRX_RAW/databricks-mlflow-evaluation" \
-  "SKILL.md"
-
-# ── Install from langchain-ai/langchain-skills ───────────────────────────────
-echo ""
-info "Installing dependencies from langchain-ai/langchain-skills..."
-
-LC_RAW="https://raw.githubusercontent.com/langchain-ai/langchain-skills/main/config/skills"
-
-install_remote_skill "langgraph-fundamentals" \
-  "$LC_RAW/langgraph-fundamentals" \
-  "SKILL.md"
-
-install_remote_skill "langgraph-persistence" \
-  "$LC_RAW/langgraph-persistence" \
-  "SKILL.md"
-
-install_remote_skill "langchain-fundamentals" \
-  "$LC_RAW/langchain-fundamentals" \
-  "SKILL.md"
-
-install_remote_skill "framework-selection" \
-  "$LC_RAW/framework-selection" \
-  "SKILL.md"
+# ── Install external dependencies ────────────────────────────────────────────
+if [ ${#ALL_DEPS[@]} -gt 0 ]; then
+  echo ""
+  info "Installing external dependencies..."
+  for dep_name in "${!ALL_DEPS[@]}"; do
+    IFS='|' read -r raw_base files <<< "${ALL_DEPS[$dep_name]}"
+    install_remote_skill "$dep_name" "$raw_base" "$files"
+  done
+fi
 
 # ── Done ─────────────────────────────────────────────────────────────────────
 echo ""
@@ -190,17 +249,17 @@ echo "Installed skills:"
 for tool in "${!SKILL_DIRS[@]}"; do
   echo ""
   echo "  $tool → ${SKILL_DIRS[$tool]}"
-  ls "${SKILL_DIRS[$tool]}" 2>/dev/null | sed 's/^/    • /'
+  ls "${SKILL_DIRS[$tool]}" 2>/dev/null | sed 's/^/    • /' || true
 done
 echo ""
 echo "Next steps:"
-if [[ "${SKILL_DIRS[*]}" == *".claude"* ]]; then
-  echo "  • Claude Code: skills are ready — start a new session in your project"
+if [[ "${!SKILL_DIRS[*]}" == *"claude"* ]]; then
+  echo "  • Claude Code: start a new session — skills load automatically"
 fi
-if [[ "${SKILL_DIRS[*]}" == *".cursor"* ]]; then
+if [[ "${!SKILL_DIRS[*]}" == *"cursor"* ]]; then
   echo "  • Cursor: restart Cursor and check Settings > Rules"
 fi
-if [[ "${SKILL_DIRS[*]}" == *".github"* ]]; then
-  echo "  • GitHub Copilot: skills available in Copilot Chat via @workspace"
+if [[ "${!SKILL_DIRS[*]}" == *"copilot"* ]]; then
+  echo "  • GitHub Copilot: skills available in Copilot Chat"
 fi
 echo ""

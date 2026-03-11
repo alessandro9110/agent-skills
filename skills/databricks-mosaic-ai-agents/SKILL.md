@@ -8,6 +8,39 @@ metadata:
   version: 1.0.0
   category: databricks
   tags: [databricks, mosaic-ai, langgraph, langchain, mlflow, unity-catalog, agents, asset-bundle]
+  dependencies:
+    - name: databricks-asset-bundles
+      repo: databricks-solutions/ai-dev-kit
+      raw_base: https://raw.githubusercontent.com/databricks-solutions/ai-dev-kit/main/databricks-skills/databricks-asset-bundles
+      files: [SKILL.md]
+    - name: databricks-model-serving
+      repo: databricks-solutions/ai-dev-kit
+      raw_base: https://raw.githubusercontent.com/databricks-solutions/ai-dev-kit/main/databricks-skills/databricks-model-serving
+      files: [SKILL.md]
+    - name: databricks-vector-search
+      repo: databricks-solutions/ai-dev-kit
+      raw_base: https://raw.githubusercontent.com/databricks-solutions/ai-dev-kit/main/databricks-skills/databricks-vector-search
+      files: [SKILL.md]
+    - name: databricks-mlflow-evaluation
+      repo: databricks-solutions/ai-dev-kit
+      raw_base: https://raw.githubusercontent.com/databricks-solutions/ai-dev-kit/main/databricks-skills/databricks-mlflow-evaluation
+      files: [SKILL.md]
+    - name: langgraph-fundamentals
+      repo: langchain-ai/langchain-skills
+      raw_base: https://raw.githubusercontent.com/langchain-ai/langchain-skills/main/config/skills/langgraph-fundamentals
+      files: [SKILL.md]
+    - name: langgraph-persistence
+      repo: langchain-ai/langchain-skills
+      raw_base: https://raw.githubusercontent.com/langchain-ai/langchain-skills/main/config/skills/langgraph-persistence
+      files: [SKILL.md]
+    - name: langchain-fundamentals
+      repo: langchain-ai/langchain-skills
+      raw_base: https://raw.githubusercontent.com/langchain-ai/langchain-skills/main/config/skills/langchain-fundamentals
+      files: [SKILL.md]
+    - name: framework-selection
+      repo: langchain-ai/langchain-skills
+      raw_base: https://raw.githubusercontent.com/langchain-ai/langchain-skills/main/config/skills/framework-selection
+      files: [SKILL.md]
 ---
 
 # Databricks Mosaic AI Agents
