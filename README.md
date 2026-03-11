@@ -14,6 +14,12 @@ Skills are reusable instruction sets (SKILL.md files) that teach AI assistants h
 |-------|-------------|-------|
 | [azure-ai-foundry-agents](./skills/azure-ai-foundry-agents/) | Create and deploy AI agents and multi-agent systems on Azure AI Foundry | Function calling, Databricks Genie, Azure AI Search, Multi-agent orchestration |
 
+### Databricks
+
+| Skill | Description | Tools |
+|-------|-------------|-------|
+| [databricks-mosaic-ai-agents](./skills/databricks-mosaic-ai-agents/) | Build and deploy custom AI agents on Databricks using Mosaic AI with LangGraph or LangChain | MLflow tracing, Unity Catalog tools, Vector Search, Asset Bundle job deployment |
+
 ## How to Use a Skill
 
 ### Claude Code / Claude Desktop
