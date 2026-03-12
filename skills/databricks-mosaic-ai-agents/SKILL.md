@@ -41,6 +41,13 @@ metadata:
       repo: langchain-ai/langchain-skills
       raw_base: https://raw.githubusercontent.com/langchain-ai/langchain-skills/main/config/skills/framework-selection
       files: [SKILL.md]
+  mcp_servers:
+    - name: databricks
+      type: stdio
+      command: uv
+      args: run --directory AI_DEV_KIT_PATH python databricks-mcp-server/run_server.py
+      path_var: AI_DEV_KIT_PATH
+      path_hint: Path to cloned databricks-solutions/ai-dev-kit repo
 ---
 
 # Databricks Mosaic AI Agents
@@ -352,6 +359,12 @@ mlflow.set_experiment("/Shared/my-agent-experiment")
 **Deployment job times out**
 - Model Serving deployment takes ~15 min — use async `deploy()` and poll status
 - Do not set job timeout below 20 minutes
+- If the `databricks` MCP is active, use `get_serving_endpoint_status` to check readiness:
+  ```
+  Tool: get_serving_endpoint_status
+  Input: { "endpoint_name": "my-agent-endpoint" }
+  ```
+  Or list all endpoints: `list_serving_endpoints` (no input required)
 
 **LangGraph state not persisting across invocations**
 - Add a checkpointer for cross-turn memory (see `langgraph-persistence` skill)
