@@ -18,7 +18,13 @@ GLOBAL=false
 TOOLS="claude"
 AUTO_YES=false
 WITH_MCP=false
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# When run via pipe (bash <(curl ...)), BASH_SOURCE[0] is a file descriptor path.
+# Fall back to $PWD so the script works when executed from within the cloned repo.
+if [[ -f "${BASH_SOURCE[0]:-}" ]]; then
+  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+else
+  SCRIPT_DIR="$(pwd)"
+fi
 
 # ── Parse args ───────────────────────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
