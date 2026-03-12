@@ -18,13 +18,7 @@ GLOBAL=false
 TOOLS="claude"
 AUTO_YES=false
 WITH_MCP=false
-# When run via pipe (bash <(curl ...)), BASH_SOURCE[0] is a file descriptor path.
-# Fall back to $PWD so the script works when executed from within the cloned repo.
-if [[ -f "${BASH_SOURCE[0]:-}" ]]; then
-  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-else
-  SCRIPT_DIR="$(pwd)"
-fi
+SCRIPT_DIR=""  # resolved below after dependency checks
 
 # ── Parse args ───────────────────────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
@@ -49,6 +43,26 @@ done
 # ── Check dependencies ───────────────────────────────────────────────────────
 command -v curl >/dev/null 2>&1 || error "curl is required but not installed."
 command -v python3 >/dev/null 2>&1 || error "python3 is required but not installed."
+command -v git >/dev/null 2>&1 || error "git is required but not installed."
+
+# ── Resolve repo (clone/update if run via pipe, use local if run from clone) ──
+REPO_URL="https://github.com/alessandro9110/agent-skills.git"
+INSTALL_DIR="$HOME/.agent-skills"
+
+if [[ -f "${BASH_SOURCE[0]:-}" ]]; then
+  # Running from a local file — use its directory directly
+  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+else
+  # Running via pipe (bash <(curl ...)) — clone or update repo
+  if [[ -d "$INSTALL_DIR/.git" ]]; then
+    info "Updating agent-skills repo..."
+    git -C "$INSTALL_DIR" pull -q
+  else
+    info "Cloning agent-skills repo to $INSTALL_DIR..."
+    git clone -q "$REPO_URL" "$INSTALL_DIR"
+  fi
+  SCRIPT_DIR="$INSTALL_DIR"
+fi
 
 # ── Skill dirs — parallel arrays (bash 3.2 compatible) ───────────────────────
 SKILL_DIR_TOOLS=()
