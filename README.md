@@ -23,15 +23,26 @@ Skills are reusable instruction sets (SKILL.md files) that teach AI assistants h
 ## Prerequisites
 
 ### System
-| Requirement | Why |
-|-------------|-----|
-| Python 3.10+ | Required by the installer (YAML parsing) and by skill libraries |
-| `uv` | Required to run the Databricks MCP server (stdio) |
-| `curl` | Required by the installer to download remote skills |
+| Requirement | macOS | Linux | Windows |
+|-------------|-------|-------|---------|
+| Python 3.10+ | `brew install python` | `sudo apt install python3` | [python.org](https://www.python.org/downloads/) |
+| `uv` | see below | see below | see below |
+| `curl` | built-in | `sudo apt install curl` | built-in (Win 10+) |
+| bash shell | built-in | built-in | WSL or Git Bash required |
 
-Install `uv`:
+> **Windows:** `install.sh` is a bash script and does not run in PowerShell or CMD.
+> Use [WSL](https://learn.microsoft.com/en-us/windows/wsl/install) (`wsl bash install.sh`) or [Git Bash](https://git-scm.com/downloads) (open Git Bash terminal and run the script normally).
+
+**Install `uv`:**
+
+macOS / Linux:
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+Windows (PowerShell):
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 ```
 
 ### Python libraries per skill
