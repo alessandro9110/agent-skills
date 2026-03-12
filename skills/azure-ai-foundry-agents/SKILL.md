@@ -9,9 +9,9 @@ metadata:
   category: azure-ai
   tags: [azure, ai-foundry, agents, multi-agent, databricks, vector-db, microsoft-agent-framework]
   dependencies:
-    - name: azure-ai-foundry-local
+    - name: azure-microsoft-foundry
       repo: MicrosoftDocs/Agent-Skills
-      raw_base: https://raw.githubusercontent.com/MicrosoftDocs/Agent-Skills/main/skills/azure-ai-foundry-local
+      raw_base: https://raw.githubusercontent.com/MicrosoftDocs/Agent-Skills/main/skills/azure-microsoft-foundry
       files: [SKILL.md]
     - name: azure-cognitive-search
       repo: MicrosoftDocs/Agent-Skills

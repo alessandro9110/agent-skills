@@ -49,7 +49,7 @@ bash install.sh --tools claude,cursor,copilot
 |-------|--------|
 | `azure-ai-foundry-agents` | This repo |
 | `databricks-mosaic-ai-agents` | This repo |
-| `azure-ai-foundry-local` | MicrosoftDocs/Agent-Skills |
+| `azure-microsoft-foundry` | MicrosoftDocs/Agent-Skills |
 | `azure-cognitive-search` | MicrosoftDocs/Agent-Skills |
 | `azure-ai-services` | MicrosoftDocs/Agent-Skills |
 | `databricks-asset-bundles` | databricks-solutions/ai-dev-kit |
