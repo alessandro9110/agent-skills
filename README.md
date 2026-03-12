@@ -20,14 +20,50 @@ Skills are reusable instruction sets (SKILL.md files) that teach AI assistants h
 |-------|-------------|-------|
 | [databricks-mosaic-ai-agents](./skills/databricks-mosaic-ai-agents/) | Build and deploy custom AI agents on Databricks using Mosaic AI with LangGraph or LangChain | MLflow tracing, Unity Catalog tools, Vector Search, Asset Bundle job deployment |
 
+## Prerequisites
+
+### System
+| Requirement | Why |
+|-------------|-----|
+| Python 3.10+ | Required by the installer (YAML parsing) and by skill libraries |
+| `uv` | Required to run the Databricks MCP server (stdio) |
+| `curl` | Required by the installer to download remote skills |
+
+Install `uv`:
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+### Python libraries per skill
+
+**Azure AI Foundry agents:**
+```bash
+pip install "azure-ai-projects>=2.0.0b4" azure-identity
+```
+
+**Databricks Mosaic AI agents:**
+```bash
+pip install databricks-langchain langgraph mlflow databricks-agents databricks-sdk
+```
+
 ## Installation
 
-The installer automatically downloads our skills **and all dependencies** (databricks ai-dev-kit skills + langchain-skills).
+The installer automatically downloads our skills **and all dependencies** (databricks ai-dev-kit skills + langchain-skills). At the end it will ask whether to configure MCP servers.
 
 ### Quick install (Claude Code — project scope)
 ```bash
 bash <(curl -sL https://raw.githubusercontent.com/alessandro9110/agent-skills/main/install.sh)
 ```
+
+### VS Code with Claude Code
+
+1. Install the [Claude Code extension](https://marketplace.visualstudio.com/items?itemName=Anthropic.claude-code) in VS Code
+2. Open your project folder in VS Code
+3. Run the installer from the VS Code terminal:
+```bash
+bash <(curl -sL https://raw.githubusercontent.com/alessandro9110/agent-skills/main/install.sh)
+```
+Skills are installed into `.claude/skills/` and loaded automatically by Claude Code. When prompted about MCP servers, say `y` to configure `microsoft-learn` (HTTP, no extra setup) and/or `databricks` (requires `uv` and a local clone of [ai-dev-kit](https://github.com/databricks-solutions/ai-dev-kit)).
 
 ### Install for multiple tools
 ```bash
@@ -42,6 +78,7 @@ bash install.sh --tools claude,cursor,copilot
 --global, -g         Install globally (~/.claude/skills, ~/.cursor/rules, etc.)
 --tools, -t TOOLS    Tools to install for: claude,cursor,copilot (default: claude)
 --yes, -y            Skip confirmation prompts
+--with-mcp           Configure MCP servers without prompting
 ```
 
 ### What gets installed
