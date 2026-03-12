@@ -44,30 +44,41 @@ done
 command -v curl >/dev/null 2>&1 || error "curl is required but not installed."
 command -v python3 >/dev/null 2>&1 || error "python3 is required but not installed."
 
-# ── Resolve target directories ───────────────────────────────────────────────
-declare -A SKILL_DIRS
+# ── Skill dirs — parallel arrays (bash 3.2 compatible) ───────────────────────
+SKILL_DIR_TOOLS=()
+SKILL_DIR_PATHS=()
 
+set_skill_dir() {
+  local tool="$1" path="$2" i
+  for i in "${!SKILL_DIR_TOOLS[@]}"; do
+    [[ "${SKILL_DIR_TOOLS[$i]}" == "$tool" ]] && { SKILL_DIR_PATHS[$i]="$path"; return; }
+  done
+  SKILL_DIR_TOOLS+=("$tool")
+  SKILL_DIR_PATHS+=("$path")
+}
+
+# ── Resolve target directories ───────────────────────────────────────────────
 IFS=',' read -ra TOOL_LIST <<< "$TOOLS"
 for tool in "${TOOL_LIST[@]}"; do
   tool=$(echo "$tool" | tr -d ' ')
   if $GLOBAL; then
     case $tool in
-      claude)  SKILL_DIRS["claude"]="$HOME/.claude/skills" ;;
-      cursor)  SKILL_DIRS["cursor"]="$HOME/.cursor/rules" ;;
-      copilot) SKILL_DIRS["copilot"]="$HOME/.github/skills" ;;
+      claude)  set_skill_dir "claude"  "$HOME/.claude/skills" ;;
+      cursor)  set_skill_dir "cursor"  "$HOME/.cursor/rules" ;;
+      copilot) set_skill_dir "copilot" "$HOME/.github/skills" ;;
       *) warn "Unknown tool: $tool (supported: claude, cursor, copilot)" ;;
     esac
   else
     case $tool in
-      claude)  SKILL_DIRS["claude"]="$(pwd)/.claude/skills" ;;
-      cursor)  SKILL_DIRS["cursor"]="$(pwd)/.cursor/rules" ;;
-      copilot) SKILL_DIRS["copilot"]="$(pwd)/.github/skills" ;;
+      claude)  set_skill_dir "claude"  "$(pwd)/.claude/skills" ;;
+      cursor)  set_skill_dir "cursor"  "$(pwd)/.cursor/rules" ;;
+      copilot) set_skill_dir "copilot" "$(pwd)/.github/skills" ;;
       *) warn "Unknown tool: $tool (supported: claude, cursor, copilot)" ;;
     esac
   fi
 done
 
-[ ${#SKILL_DIRS[@]} -eq 0 ] && error "No valid tools specified."
+[ ${#SKILL_DIR_TOOLS[@]} -eq 0 ] && error "No valid tools specified."
 
 # ── Parse dependencies from SKILL.md frontmatter ─────────────────────────────
 # Output: "name|raw_base|files"
@@ -128,8 +139,6 @@ EOF
 
 # ── Parse MCP servers from SKILL.md frontmatter ──────────────────────────────
 # Output: "name|type|url|command|args|path_var|path_hint"
-#   http  → name|http|url|||
-#   stdio → name|stdio||command|args|PATH_VAR|hint text
 parse_mcp_servers() {
   local skill_md="$1"
   python3 - "$skill_md" <<'EOF'
@@ -181,22 +190,44 @@ if current:
     servers.append(current)
 
 for s in servers:
-    name     = s.get('name', '')
-    typ      = s.get('type', 'http')
-    url      = s.get('url', '')
-    command  = s.get('command', '')
-    args     = s.get('args', '')
-    path_var = s.get('path_var', '')
+    name      = s.get('name', '')
+    typ       = s.get('type', 'http')
+    url       = s.get('url', '')
+    command   = s.get('command', '')
+    args      = s.get('args', '')
+    path_var  = s.get('path_var', '')
     path_hint = s.get('path_hint', '')
     if name:
         print(f"{name}|{typ}|{url}|{command}|{args}|{path_var}|{path_hint}")
 EOF
 }
 
-# ── Collect all skills, dependencies, and MCP servers ────────────────────────
-declare -A ALL_DEPS   # dep_name  -> "raw_base|files"
-declare -A ALL_MCPS   # mcp_name  -> "type|url|command|args|path_var|path_hint"
+# ── Deps and MCPs — parallel arrays (bash 3.2 compatible) ────────────────────
+DEP_NAMES=()
+DEP_VALUES=()
 
+set_dep() {
+  local name="$1" value="$2" i
+  for i in "${!DEP_NAMES[@]}"; do
+    [[ "${DEP_NAMES[$i]}" == "$name" ]] && { DEP_VALUES[$i]="$value"; return; }
+  done
+  DEP_NAMES+=("$name")
+  DEP_VALUES+=("$value")
+}
+
+MCP_NAMES=()
+MCP_VALUES=()
+
+set_mcp() {
+  local name="$1" value="$2" i
+  for i in "${!MCP_NAMES[@]}"; do
+    [[ "${MCP_NAMES[$i]}" == "$name" ]] && { MCP_VALUES[$i]="$value"; return; }
+  done
+  MCP_NAMES+=("$name")
+  MCP_VALUES+=("$value")
+}
+
+# ── Collect all skills, dependencies, and MCP servers ────────────────────────
 info "Scanning skills for dependencies and MCP servers..."
 
 for skill_dir in "$SCRIPT_DIR/skills"/*/; do
@@ -206,13 +237,13 @@ for skill_dir in "$SCRIPT_DIR/skills"/*/; do
 
   while IFS='|' read -r dep_name raw_base files; do
     [ -z "$dep_name" ] && continue
-    ALL_DEPS["$dep_name"]="$raw_base|$files"
+    set_dep "$dep_name" "$raw_base|$files"
     info "  Found dependency: $dep_name (from $skill_name)"
   done < <(parse_dependencies "$skill_md")
 
   while IFS='|' read -r mcp_name mcp_type mcp_url mcp_command mcp_args mcp_path_var mcp_path_hint; do
     [ -z "$mcp_name" ] && continue
-    ALL_MCPS["$mcp_name"]="$mcp_type|$mcp_url|$mcp_command|$mcp_args|$mcp_path_var|$mcp_path_hint"
+    set_mcp "$mcp_name" "$mcp_type|$mcp_url|$mcp_command|$mcp_args|$mcp_path_var|$mcp_path_hint"
     info "  Found MCP server: $mcp_name [$mcp_type] (from $skill_name)"
   done < <(parse_mcp_servers "$skill_md")
 done
@@ -231,17 +262,18 @@ echo ""
 echo "Our skills (${#OUR_SKILLS[@]}):"
 for s in "${OUR_SKILLS[@]}"; do echo "  • $s"; done
 
-if [ ${#ALL_DEPS[@]} -gt 0 ]; then
+if [ ${#DEP_NAMES[@]} -gt 0 ]; then
   echo ""
-  echo "External dependencies (${#ALL_DEPS[@]}):"
-  for dep in "${!ALL_DEPS[@]}"; do echo "  • $dep"; done
+  echo "External dependencies (${#DEP_NAMES[@]}):"
+  for dep in "${DEP_NAMES[@]}"; do echo "  • $dep"; done
 fi
 
-if [ ${#ALL_MCPS[@]} -gt 0 ]; then
+if [ ${#MCP_NAMES[@]} -gt 0 ]; then
   echo ""
-  echo "MCP servers available (${#ALL_MCPS[@]}):"
-  for mcp in "${!ALL_MCPS[@]}"; do
-    IFS='|' read -r mcp_type mcp_url mcp_command mcp_args mcp_path_var mcp_path_hint <<< "${ALL_MCPS[$mcp]}"
+  echo "MCP servers available (${#MCP_NAMES[@]}):"
+  for i in "${!MCP_NAMES[@]}"; do
+    mcp="${MCP_NAMES[$i]}"
+    IFS='|' read -r mcp_type mcp_url mcp_command mcp_args mcp_path_var mcp_path_hint <<< "${MCP_VALUES[$i]}"
     if [[ "$mcp_type" == "http" ]]; then
       echo "  • $mcp  (http → $mcp_url)"
     else
@@ -253,8 +285,8 @@ fi
 
 echo ""
 echo "Install locations:"
-for tool in "${!SKILL_DIRS[@]}"; do
-  echo "  • $tool → ${SKILL_DIRS[$tool]}"
+for i in "${!SKILL_DIR_TOOLS[@]}"; do
+  echo "  • ${SKILL_DIR_TOOLS[$i]} → ${SKILL_DIR_PATHS[$i]}"
 done
 echo ""
 
@@ -268,8 +300,9 @@ install_local_skill() {
   local skill_name="$1"
   local skill_src="$SCRIPT_DIR/skills/$skill_name"
   [ -d "$skill_src" ] || { warn "Local skill not found: $skill_name — skipping"; return; }
-  for tool in "${!SKILL_DIRS[@]}"; do
-    local dest="${SKILL_DIRS[$tool]}/$skill_name"
+  for i in "${!SKILL_DIR_TOOLS[@]}"; do
+    local tool="${SKILL_DIR_TOOLS[$i]}"
+    local dest="${SKILL_DIR_PATHS[$i]}/$skill_name"
     mkdir -p "$dest"
     cp -r "$skill_src/." "$dest/"
     success "[$tool] Installed: $skill_name"
@@ -281,8 +314,9 @@ install_remote_skill() {
   local raw_base="$2"
   local files_csv="$3"
   IFS=',' read -ra files <<< "$files_csv"
-  for tool in "${!SKILL_DIRS[@]}"; do
-    local dest="${SKILL_DIRS[$tool]}/$skill_name"
+  for i in "${!SKILL_DIR_TOOLS[@]}"; do
+    local tool="${SKILL_DIR_TOOLS[$i]}"
+    local dest="${SKILL_DIR_PATHS[$i]}/$skill_name"
     mkdir -p "$dest"
     for file in "${files[@]}"; do
       file=$(echo "$file" | tr -d ' ')
@@ -297,7 +331,6 @@ install_remote_skill() {
 }
 
 # Writes one MCP server entry into a JSON config file (merges, never overwrites).
-# Usage: configure_mcp_server <name> <type> <url> <command> <args> <config_file> <config_key>
 configure_mcp_server() {
   local mcp_name="$1"
   local mcp_type="$2"
@@ -342,8 +375,24 @@ EOF
 install_mcps() {
   echo ""
   info "Configuring MCP servers..."
-  for mcp_name in "${!ALL_MCPS[@]}"; do
-    IFS='|' read -r mcp_type mcp_url mcp_command mcp_args mcp_path_var mcp_path_hint <<< "${ALL_MCPS[$mcp_name]}"
+
+  # Check if uv is needed and available
+  local needs_uv=false
+  for i in "${!MCP_NAMES[@]}"; do
+    local _type _url _cmd _args _pvar _phint
+    IFS='|' read -r _type _url _cmd _args _pvar _phint <<< "${MCP_VALUES[$i]}"
+    [[ "$_type" == "stdio" && "$_cmd" == "uv" ]] && needs_uv=true && break
+  done
+  if $needs_uv && ! command -v uv >/dev/null 2>&1; then
+    warn "uv is required for one or more MCP servers but is not installed."
+    warn "Install it with: curl -LsSf https://astral.sh/uv/install.sh | sh"
+    warn "Skipping MCP configuration."
+    return
+  fi
+
+  for i in "${!MCP_NAMES[@]}"; do
+    local mcp_name="${MCP_NAMES[$i]}"
+    IFS='|' read -r mcp_type mcp_url mcp_command mcp_args mcp_path_var mcp_path_hint <<< "${MCP_VALUES[$i]}"
 
     # For stdio MCPs with a required path: ask user once, substitute in args
     if [[ "$mcp_type" == "stdio" ]] && [[ -n "$mcp_path_var" ]]; then
@@ -357,7 +406,8 @@ install_mcps() {
       mcp_args="${mcp_args//$mcp_path_var/$actual_path}"
     fi
 
-    for tool in "${!SKILL_DIRS[@]}"; do
+    for j in "${!SKILL_DIR_TOOLS[@]}"; do
+      local tool="${SKILL_DIR_TOOLS[$j]}"
       local config_file config_key
       if $GLOBAL; then
         case $tool in
@@ -386,24 +436,26 @@ for skill_name in "${OUR_SKILLS[@]}"; do
 done
 
 # ── Install external dependencies ────────────────────────────────────────────
-if [ ${#ALL_DEPS[@]} -gt 0 ]; then
+if [ ${#DEP_NAMES[@]} -gt 0 ]; then
   echo ""
   info "Installing external dependencies..."
-  for dep_name in "${!ALL_DEPS[@]}"; do
-    IFS='|' read -r raw_base files <<< "${ALL_DEPS[$dep_name]}"
+  for i in "${!DEP_NAMES[@]}"; do
+    dep_name="${DEP_NAMES[$i]}"
+    IFS='|' read -r raw_base files <<< "${DEP_VALUES[$i]}"
     install_remote_skill "$dep_name" "$raw_base" "$files"
   done
 fi
 
 # ── Configure MCP servers (optional) ─────────────────────────────────────────
-if [ ${#ALL_MCPS[@]} -gt 0 ]; then
+if [ ${#MCP_NAMES[@]} -gt 0 ]; then
   if $WITH_MCP; then
     install_mcps
   elif ! $AUTO_YES; then
     echo ""
-    echo "MCP servers found (${#ALL_MCPS[@]}):"
-    for mcp in "${!ALL_MCPS[@]}"; do
-      IFS='|' read -r mcp_type mcp_url mcp_command mcp_args mcp_path_var mcp_path_hint <<< "${ALL_MCPS[$mcp]}"
+    echo "MCP servers found (${#MCP_NAMES[@]}):"
+    for i in "${!MCP_NAMES[@]}"; do
+      mcp="${MCP_NAMES[$i]}"
+      IFS='|' read -r mcp_type mcp_url mcp_command mcp_args mcp_path_var mcp_path_hint <<< "${MCP_VALUES[$i]}"
       if [[ "$mcp_type" == "http" ]]; then
         echo "  • $mcp  (http → $mcp_url)"
       else
@@ -422,8 +474,9 @@ if [ ${#ALL_MCPS[@]} -gt 0 ]; then
       info "Skipping MCP configuration."
       echo ""
       echo "To configure manually:"
-      for mcp in "${!ALL_MCPS[@]}"; do
-        IFS='|' read -r mcp_type mcp_url mcp_command mcp_args mcp_path_var mcp_path_hint <<< "${ALL_MCPS[$mcp]}"
+      for i in "${!MCP_NAMES[@]}"; do
+        mcp="${MCP_NAMES[$i]}"
+        IFS='|' read -r mcp_type mcp_url mcp_command mcp_args mcp_path_var mcp_path_hint <<< "${MCP_VALUES[$i]}"
         if [[ "$mcp_type" == "http" ]]; then
           echo "  $mcp: { \"type\": \"http\", \"url\": \"$mcp_url\" }"
         else
@@ -442,20 +495,20 @@ echo -e "${GREEN}║         Installation complete!             ║${NC}"
 echo -e "${GREEN}╚════════════════════════════════════════════╝${NC}"
 echo ""
 echo "Installed skills:"
-for tool in "${!SKILL_DIRS[@]}"; do
+for i in "${!SKILL_DIR_TOOLS[@]}"; do
+  tool="${SKILL_DIR_TOOLS[$i]}"
+  path="${SKILL_DIR_PATHS[$i]}"
   echo ""
-  echo "  $tool → ${SKILL_DIRS[$tool]}"
-  ls "${SKILL_DIRS[$tool]}" 2>/dev/null | sed 's/^/    • /' || true
+  echo "  $tool → $path"
+  ls "$path" 2>/dev/null | sed 's/^/    • /' || true
 done
 echo ""
 echo "Next steps:"
-if [[ "${!SKILL_DIRS[*]}" == *"claude"* ]]; then
-  echo "  • Claude Code: start a new session — skills load automatically"
-fi
-if [[ "${!SKILL_DIRS[*]}" == *"cursor"* ]]; then
-  echo "  • Cursor: restart Cursor and check Settings > Rules"
-fi
-if [[ "${!SKILL_DIRS[*]}" == *"copilot"* ]]; then
-  echo "  • GitHub Copilot: skills available in Copilot Chat"
-fi
+for i in "${!SKILL_DIR_TOOLS[@]}"; do
+  case "${SKILL_DIR_TOOLS[$i]}" in
+    claude)  echo "  • Claude Code: start a new session — skills load automatically" ;;
+    cursor)  echo "  • Cursor: restart Cursor and check Settings > Rules" ;;
+    copilot) echo "  • GitHub Copilot: skills available in Copilot Chat" ;;
+  esac
+done
 echo ""

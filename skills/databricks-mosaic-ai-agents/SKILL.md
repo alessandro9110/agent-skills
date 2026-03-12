@@ -2,7 +2,7 @@
 name: databricks-mosaic-ai-agents
 description: Guides building and deploying custom AI agents on Databricks using Mosaic AI Agent Framework with LangGraph or LangChain. Use when creating agents with MLflow tracing, Unity Catalog functions as tools, Vector Search retrieval, or deploying agents via Databricks Asset Bundle jobs. Triggers on phrases like "build agent Databricks", "LangGraph Mosaic AI", "LangChain Databricks agent", "deploy agent MLflow", "UC function tool", "agent asset bundle", "Databricks agent job deployment", "Mosaic AI LangGraph".
 license: MIT
-compatibility: Requires Databricks workspace with Unity Catalog, MLflow 3.1.3+, databricks-langchain, langgraph or langchain, databricks-agents SDK. Works with Claude Code, Claude Desktop, VS Code with GitHub Copilot, and Cursor. Complements databricks-asset-bundles and langgraph-fundamentals skills.
+compatibility: Requires Databricks workspace with Unity Catalog, MLflow 3.1.3+, databricks-langchain, langgraph or langchain, databricks-agents SDK. MCP server requires uv (install: curl -LsSf https://astral.sh/uv/install.sh | sh) and a local clone of databricks-solutions/ai-dev-kit. Works with Claude Code, Claude Desktop, VS Code with GitHub Copilot, and Cursor. Complements databricks-asset-bundles and langgraph-fundamentals skills.
 metadata:
   author: Alessandro Armillotta
   version: 1.0.0
@@ -41,6 +41,10 @@ metadata:
       repo: langchain-ai/langchain-skills
       raw_base: https://raw.githubusercontent.com/langchain-ai/langchain-skills/main/config/skills/framework-selection
       files: [SKILL.md]
+    - name: databricks-lakebase-provisioned
+      repo: databricks-solutions/ai-dev-kit
+      raw_base: https://raw.githubusercontent.com/databricks-solutions/ai-dev-kit/main/databricks-skills/databricks-lakebase-provisioned
+      files: [SKILL.md]
   mcp_servers:
     - name: databricks
       type: stdio
@@ -58,6 +62,7 @@ Guide for building custom AI agents on Databricks using LangGraph or LangChain, 
 > - `databricks-asset-bundles` (from databricks-solutions/ai-dev-kit) — for bundle structure and deployment commands
 > - `langgraph-fundamentals` (from langchain-ai/langchain-skills) — for LangGraph graph design patterns
 > - `databricks-model-serving` (from databricks-solutions/ai-dev-kit) — for serving endpoint concepts
+> - `databricks-lakebase-provisioned` (from databricks-solutions/ai-dev-kit) — for persistent agent memory via managed PostgreSQL
 
 ## Prerequisites
 
@@ -326,6 +331,126 @@ search_tool = create_retriever_tool(
 agent = create_react_agent(llm, [search_tool, query_catalog])
 ```
 
+## Step 8: Persistent Memory with Lakebase
+
+Model Serving endpoints are stateless — LangGraph state does not persist across invocations. Use **Lakebase Provisioned** (managed PostgreSQL on Databricks) as the external store for agent memory, chat history, and LangGraph checkpoints.
+
+### Create Lakebase Instance
+
+If the `databricks` MCP server is active, create the instance directly from the IDE:
+
+```
+Tool: create_or_update_lakebase_database
+Input: {
+  "type": "provisioned",
+  "name": "my-agent-memory",
+  "capacity": "CU_1",
+  "stopped": false
+}
+```
+
+Or via SDK:
+
+```python
+from databricks.sdk import WorkspaceClient
+
+w = WorkspaceClient()
+instance = w.database.create_database_instance(
+    name="my-agent-memory",
+    capacity="CU_1",
+    stopped=False
+)
+print(f"Endpoint: {instance.read_write_dns}")
+```
+
+### Install Memory Dependencies
+
+```bash
+pip install "databricks-langchain[memory]" "psycopg[binary]>=3.0"
+```
+
+### LangGraph Checkpointer (Stateful Agent)
+
+Use a PostgreSQL checkpointer to persist the LangGraph state across invocations:
+
+```python
+import mlflow
+from databricks_langchain import ChatDatabricks
+from langgraph.prebuilt import create_react_agent
+from langgraph.checkpoint.postgres import PostgresSaver
+from databricks.sdk import WorkspaceClient
+import uuid
+
+mlflow.langchain.autolog()
+
+w = WorkspaceClient()
+instance = w.database.get_database_instance(name="my-agent-memory")
+cred = w.database.generate_database_credential(
+    request_id=str(uuid.uuid4()),
+    instance_names=["my-agent-memory"]
+)
+
+conn_string = (
+    f"host={instance.read_write_dns} "
+    f"dbname=postgres "
+    f"user={w.current_user.me().user_name} "
+    f"password={cred.token} "
+    f"sslmode=require"
+)
+
+checkpointer = PostgresSaver.from_conn_string(conn_string)
+checkpointer.setup()  # Creates checkpoint tables on first run
+
+llm = ChatDatabricks(endpoint="databricks-meta-llama-3-70b-instruct")
+agent = create_react_agent(llm, tools, checkpointer=checkpointer)
+
+# Invoke with thread_id to maintain state across calls
+config = {"configurable": {"thread_id": "user-session-123"}}
+result = agent.invoke({"messages": [{"role": "user", "content": "Hello"}]}, config)
+
+mlflow.models.set_model(agent)
+```
+
+### Declare Lakebase as MLflow Resource
+
+This enables automatic credential provisioning on the serving endpoint — no manual token management needed:
+
+```python
+from mlflow.models.resources import DatabricksLakebase
+
+with mlflow.start_run():
+    logged_info = mlflow.langchain.log_model(
+        lc_model="./src/agent.py",
+        artifact_path="agent",
+        input_example=input_example,
+        example_no_conversion=True,
+        resources=[
+            DatabricksLakebase(database_instance_name="my-agent-memory")
+        ],
+        pip_requirements=[
+            "databricks-langchain[memory]",
+            "langgraph",
+            "mlflow",
+            "databricks-agents",
+            "psycopg[binary]>=3.0",
+        ]
+    )
+```
+
+### Check Instance Status via MCP
+
+```
+Tool: get_lakebase_database
+Input: { "type": "provisioned", "name": "my-agent-memory" }
+```
+
+### Generate Credentials via MCP
+
+```
+Tool: generate_lakebase_credential
+Input: { "instance_names": ["my-agent-memory"] }
+```
+
 ## MLflow Tracing
 
 MLflow auto-tracing captures every agent step. View traces in the Databricks UI:
@@ -367,5 +492,5 @@ mlflow.set_experiment("/Shared/my-agent-experiment")
   Or list all endpoints: `list_serving_endpoints` (no input required)
 
 **LangGraph state not persisting across invocations**
-- Add a checkpointer for cross-turn memory (see `langgraph-persistence` skill)
-- Model Serving endpoints are stateless — use external store (Delta table or Redis)
+- Use Lakebase Provisioned as PostgreSQL checkpointer — see **Step 8: Persistent Memory with Lakebase**
+- Declare `DatabricksLakebase` as MLflow resource for automatic credential provisioning on the endpoint
