@@ -49,6 +49,9 @@ bash install.sh --tools claude,cursor,copilot
 |-------|--------|
 | `azure-ai-foundry-agents` | This repo |
 | `databricks-mosaic-ai-agents` | This repo |
+| `azure-ai-foundry-local` | MicrosoftDocs/Agent-Skills |
+| `azure-cognitive-search` | MicrosoftDocs/Agent-Skills |
+| `azure-ai-services` | MicrosoftDocs/Agent-Skills |
 | `databricks-asset-bundles` | databricks-solutions/ai-dev-kit |
 | `databricks-model-serving` | databricks-solutions/ai-dev-kit |
 | `databricks-vector-search` | databricks-solutions/ai-dev-kit |
@@ -57,6 +60,8 @@ bash install.sh --tools claude,cursor,copilot
 | `langgraph-persistence` | langchain-ai/langchain-skills |
 | `langchain-fundamentals` | langchain-ai/langchain-skills |
 | `framework-selection` | langchain-ai/langchain-skills |
+
+> **Note:** MicrosoftDocs skills require the `mcp_microsoftdocs` MCP server to be configured for live documentation fetching. Without it, the implementation workflows in our skills are still fully functional.
 
 ## Contributing
 

@@ -8,11 +8,26 @@ metadata:
   version: 1.0.0
   category: azure-ai
   tags: [azure, ai-foundry, agents, multi-agent, databricks, vector-db, microsoft-agent-framework]
+  dependencies:
+    - name: azure-ai-foundry-local
+      repo: MicrosoftDocs/Agent-Skills
+      raw_base: https://raw.githubusercontent.com/MicrosoftDocs/Agent-Skills/main/skills/azure-ai-foundry-local
+      files: [SKILL.md]
+    - name: azure-cognitive-search
+      repo: MicrosoftDocs/Agent-Skills
+      raw_base: https://raw.githubusercontent.com/MicrosoftDocs/Agent-Skills/main/skills/azure-cognitive-search
+      files: [SKILL.md]
+    - name: azure-ai-services
+      repo: MicrosoftDocs/Agent-Skills
+      raw_base: https://raw.githubusercontent.com/MicrosoftDocs/Agent-Skills/main/skills/azure-ai-services
+      files: [SKILL.md]
 ---
 
 # Azure AI Foundry Agents
 
 Guide for creating, configuring, and deploying AI agents and multi-agent systems on Azure AI Foundry using Microsoft Agent Framework.
+
+> **Live documentation:** If `mcp_microsoftdocs:microsoft_docs_fetch` is available (VS Code with MCP enabled), use it to retrieve live Microsoft docs for limits, quotas, SDK references, and changelogs. This skill handles the implementation workflow; the MicrosoftDocs skills (`azure-ai-foundry-local`, `azure-cognitive-search`, `azure-ai-services`) handle live documentation retrieval.
 
 ## Prerequisites
 
