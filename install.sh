@@ -16,7 +16,7 @@ error()   { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
 # ── Defaults ─────────────────────────────────────────────────────────────────
 GLOBAL=false
 TOOLS="claude"
-AUTO_YES=false
+AUTO_YES=true
 WITH_MCP=false
 SCRIPT_DIR=""  # resolved below after dependency checks
 
@@ -49,9 +49,10 @@ command -v git >/dev/null 2>&1 || error "git is required but not installed."
 REPO_URL="https://github.com/alessandro9110/agent-skills.git"
 INSTALL_DIR="$HOME/.agent-skills"
 
-if [[ -f "${BASH_SOURCE[0]:-}" ]]; then
-  # Running from a local file — use its directory directly
-  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+_src_dir="$(cd "$(dirname "${BASH_SOURCE[0]:-/dev/null}")" 2>/dev/null && pwd || true)"
+if [[ -f "${BASH_SOURCE[0]:-}" ]] && [[ -d "$_src_dir/skills" ]]; then
+  # Running from a local file with a skills/ directory alongside it
+  SCRIPT_DIR="$_src_dir"
 else
   # Running via pipe (bash <(curl ...)) — clone or update repo
   if [[ -d "$INSTALL_DIR/.git" ]]; then
