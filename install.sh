@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Agent Skills Installer
 # Installs our skills + all external dependencies declared in each SKILL.md frontmatter.
-# Usage: bash install.sh [--global] [--tools claude,cursor,copilot] [--yes]
+# Optionally configures MCP servers declared in each SKILL.md.
+# Usage: bash install.sh [--global] [--tools claude,cursor,copilot] [--yes] [--with-mcp]
 
 set -e
 
@@ -16,6 +17,7 @@ error()   { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
 GLOBAL=false
 TOOLS="claude"
 AUTO_YES=false
+WITH_MCP=false
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # ── Parse args ───────────────────────────────────────────────────────────────
@@ -24,13 +26,15 @@ while [[ $# -gt 0 ]]; do
     --global|-g)   GLOBAL=true; shift ;;
     --tools|-t)    TOOLS="$2"; shift 2 ;;
     --yes|-y)      AUTO_YES=true; shift ;;
+    --with-mcp)    WITH_MCP=true; shift ;;
     --help|-h)
-      echo "Usage: bash install.sh [--global] [--tools claude,cursor,copilot] [--yes]"
+      echo "Usage: bash install.sh [--global] [--tools claude,cursor,copilot] [--yes] [--with-mcp]"
       echo ""
       echo "Options:"
       echo "  --global, -g         Install globally (~/.claude/skills, ~/.cursor/rules, etc.)"
       echo "  --tools, -t TOOLS    Comma-separated: claude,cursor,copilot (default: claude)"
       echo "  --yes, -y            Skip confirmation prompts"
+      echo "  --with-mcp           Configure MCP servers without prompting"
       exit 0 ;;
     *) warn "Unknown option: $1"; shift ;;
   esac
@@ -39,7 +43,7 @@ done
 # ── Check dependencies ───────────────────────────────────────────────────────
 command -v curl >/dev/null 2>&1 || error "curl is required but not installed."
 
-# python3 needed to parse YAML frontmatter
+# python3 needed to parse YAML frontmatter and merge JSON configs
 command -v python3 >/dev/null 2>&1 || error "python3 is required but not installed."
 
 # ── Resolve target directories ───────────────────────────────────────────────
@@ -129,10 +133,65 @@ for dep in deps:
 EOF
 }
 
-# ── Collect all skills and their dependencies ─────────────────────────────────
-declare -A ALL_DEPS   # dep_name -> "raw_base|files"
+# ── Parse MCP servers from SKILL.md frontmatter ──────────────────────────────
+# Returns a list of "name|type|url" lines
+parse_mcp_servers() {
+  local skill_md="$1"
+  python3 - "$skill_md" <<'EOF'
+import sys, re
 
-info "Scanning skills for dependencies..."
+with open(sys.argv[1]) as f:
+    content = f.read()
+
+match = re.match(r'^---\n(.*?)\n---', content, re.DOTALL)
+if not match:
+    sys.exit(0)
+
+yaml_block = match.group(1)
+
+in_mcp = False
+servers = []
+current = {}
+
+for line in yaml_block.split('\n'):
+    stripped = line.strip()
+
+    if stripped == 'mcp_servers:':
+        in_mcp = True
+        continue
+
+    if in_mcp:
+        if re.match(r'^    - name:', line):
+            if current:
+                servers.append(current)
+            current = {}
+            current['name'] = stripped.split('name:')[1].strip()
+        elif 'type:' in line:
+            current['type'] = stripped.split('type:')[1].strip()
+        elif 'url:' in line:
+            current['url'] = stripped.split('url:')[1].strip()
+        elif stripped and not stripped.startswith('#') and ':' in stripped:
+            key = stripped.split(':')[0].strip()
+            if key not in ('name', 'type', 'url'):
+                in_mcp = False
+
+if current:
+    servers.append(current)
+
+for s in servers:
+    name = s.get('name', '')
+    typ = s.get('type', 'http')
+    url = s.get('url', '')
+    if name and url:
+        print(f"{name}|{typ}|{url}")
+EOF
+}
+
+# ── Collect all skills, dependencies, and MCP servers ────────────────────────
+declare -A ALL_DEPS   # dep_name -> "raw_base|files"
+declare -A ALL_MCPS   # mcp_name -> "type|url"
+
+info "Scanning skills for dependencies and MCP servers..."
 
 for skill_dir in "$SCRIPT_DIR/skills"/*/; do
   skill_name=$(basename "$skill_dir")
@@ -145,6 +204,12 @@ for skill_dir in "$SCRIPT_DIR/skills"/*/; do
     ALL_DEPS["$dep_name"]="$raw_base|$files"
     info "  Found dependency: $dep_name (from $skill_name)"
   done < <(parse_dependencies "$skill_md")
+
+  while IFS='|' read -r mcp_name mcp_type mcp_url; do
+    [ -z "$mcp_name" ] && continue
+    ALL_MCPS["$mcp_name"]="$mcp_type|$mcp_url"
+    info "  Found MCP server: $mcp_name (from $skill_name)"
+  done < <(parse_mcp_servers "$skill_md")
 done
 
 # ── Summary ──────────────────────────────────────────────────────────────────
@@ -165,6 +230,15 @@ if [ ${#ALL_DEPS[@]} -gt 0 ]; then
   echo ""
   echo "External dependencies (${#ALL_DEPS[@]}):"
   for dep in "${!ALL_DEPS[@]}"; do echo "  • $dep"; done
+fi
+
+if [ ${#ALL_MCPS[@]} -gt 0 ]; then
+  echo ""
+  echo "MCP servers available (${#ALL_MCPS[@]}):"
+  for mcp in "${!ALL_MCPS[@]}"; do
+    IFS='|' read -r mcp_type mcp_url <<< "${ALL_MCPS[$mcp]}"
+    echo "  • $mcp  ($mcp_type → $mcp_url)"
+  done
 fi
 
 echo ""
@@ -222,6 +296,65 @@ install_remote_skill() {
   done
 }
 
+configure_mcp_server() {
+  local mcp_name="$1"
+  local mcp_type="$2"
+  local mcp_url="$3"
+  local config_file="$4"
+  local config_key="$5"   # "mcpServers" or "servers"
+
+  python3 - "$config_file" "$config_key" "$mcp_name" "$mcp_type" "$mcp_url" <<'EOF'
+import sys, json, os
+
+config_file, config_key, mcp_name, mcp_type, mcp_url = sys.argv[1:]
+
+if os.path.exists(config_file):
+    with open(config_file) as f:
+        try:
+            config = json.load(f)
+        except Exception:
+            config = {}
+else:
+    config = {}
+
+if config_key not in config:
+    config[config_key] = {}
+
+config[config_key][mcp_name] = {"type": mcp_type, "url": mcp_url}
+
+os.makedirs(os.path.dirname(os.path.abspath(config_file)), exist_ok=True)
+with open(config_file, 'w') as f:
+    json.dump(config, f, indent=2)
+    f.write('\n')
+EOF
+}
+
+install_mcps() {
+  echo ""
+  info "Configuring MCP servers..."
+  for mcp_name in "${!ALL_MCPS[@]}"; do
+    IFS='|' read -r mcp_type mcp_url <<< "${ALL_MCPS[$mcp_name]}"
+    for tool in "${!SKILL_DIRS[@]}"; do
+      local config_file config_key
+      if $GLOBAL; then
+        case $tool in
+          claude)  config_file="$HOME/.claude/settings.json";  config_key="mcpServers" ;;
+          cursor)  config_file="$HOME/.cursor/mcp.json";        config_key="mcpServers" ;;
+          copilot) config_file="$HOME/.vscode/mcp.json";        config_key="servers" ;;
+        esac
+      else
+        case $tool in
+          claude)  config_file="$(pwd)/.claude/settings.json";  config_key="mcpServers" ;;
+          cursor)  config_file="$(pwd)/.cursor/mcp.json";        config_key="mcpServers" ;;
+          copilot) config_file="$(pwd)/.vscode/mcp.json";        config_key="servers" ;;
+        esac
+      fi
+      configure_mcp_server "$mcp_name" "$mcp_type" "$mcp_url" "$config_file" "$config_key"
+      success "[$tool] MCP configured: $mcp_name → $config_file"
+    done
+  done
+}
+
 # ── Install our skills ───────────────────────────────────────────────────────
 echo ""
 info "Installing our skills..."
@@ -237,6 +370,36 @@ if [ ${#ALL_DEPS[@]} -gt 0 ]; then
     IFS='|' read -r raw_base files <<< "${ALL_DEPS[$dep_name]}"
     install_remote_skill "$dep_name" "$raw_base" "$files"
   done
+fi
+
+# ── Configure MCP servers (optional) ─────────────────────────────────────────
+if [ ${#ALL_MCPS[@]} -gt 0 ]; then
+  if $WITH_MCP; then
+    install_mcps
+  elif ! $AUTO_YES; then
+    echo ""
+    echo "MCP servers found (${#ALL_MCPS[@]}):"
+    for mcp in "${!ALL_MCPS[@]}"; do
+      IFS='|' read -r mcp_type mcp_url <<< "${ALL_MCPS[$mcp]}"
+      echo "  • $mcp  ($mcp_type → $mcp_url)"
+    done
+    echo ""
+    echo "Configuring MCP servers lets skills fetch live documentation"
+    echo "when running in VS Code, Cursor, or Claude Code with MCP enabled."
+    echo ""
+    read -rp "Configure MCP servers? [y/N] " mcp_confirm
+    if [[ "$mcp_confirm" =~ ^[Yy]$ ]]; then
+      install_mcps
+    else
+      info "Skipping MCP configuration."
+      echo ""
+      echo "To configure manually, add to your tool's settings file:"
+      for mcp in "${!ALL_MCPS[@]}"; do
+        IFS='|' read -r mcp_type mcp_url <<< "${ALL_MCPS[$mcp]}"
+        echo "  $mcp: { \"type\": \"$mcp_type\", \"url\": \"$mcp_url\" }"
+      done
+    fi
+  fi
 fi
 
 # ── Done ─────────────────────────────────────────────────────────────────────

@@ -21,6 +21,10 @@ metadata:
       repo: MicrosoftDocs/Agent-Skills
       raw_base: https://raw.githubusercontent.com/MicrosoftDocs/Agent-Skills/main/skills/azure-ai-services
       files: [SKILL.md]
+  mcp_servers:
+    - name: microsoft-learn
+      type: http
+      url: https://learn.microsoft.com/api/mcp
 ---
 
 # Azure AI Foundry Agents
