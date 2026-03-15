@@ -66,7 +66,14 @@ The installer automatically downloads our skills **and all dependencies** (datab
 bash <(curl -sL https://raw.githubusercontent.com/alessandro9110/agent-skills/main/install.sh)
 ```
 
-The installer is fully interactive — it will ask you at the end:
+The installer is fully interactive. It will first ask where to install:
+```
+Install scope:
+  [1] Project  (/your/project/.claude/skills)
+  [2] Global   (~/.claude/skills)
+```
+
+Then it will ask what to install:
 ```
 What would you like to install?
   [1] Skills only
@@ -99,9 +106,9 @@ bash install.sh --tools claude,cursor,copilot
 
 ### Options
 ```
---global, -g         Install globally (~/.claude/skills, ~/.cursor/rules, etc.)
+--global, -g         Force global install without prompting (scripting shorthand)
 --tools, -t TOOLS    Tools to install for: claude,cursor,copilot (default: claude)
---yes, -y            Skip confirmation prompts (installs skills only, no MCP)
+--yes, -y            Skip all prompts: project scope, skills only, no MCP
 ```
 
 ### What gets installed

@@ -29,9 +29,9 @@ while [[ $# -gt 0 ]]; do
       echo "Usage: bash install.sh [--global] [--tools claude,cursor,copilot] [--yes]"
       echo ""
       echo "Options:"
-      echo "  --global, -g         Install globally (~/.claude/skills, ~/.cursor/rules, etc.)"
+      echo "  --global, -g         Force global install (~/.claude/skills) without prompting"
       echo "  --tools, -t TOOLS    Comma-separated: claude,cursor,copilot (default: claude)"
-      echo "  --yes, -y            Skip confirmation prompts (installs skills only, no MCP)"
+      echo "  --yes, -y            Skip all prompts (project scope, skills only, no MCP)"
       exit 0 ;;
     *) warn "Unknown option: $1"; shift ;;
   esac
@@ -60,6 +60,17 @@ else
     git clone -q "$REPO_URL" "$INSTALL_DIR"
   fi
   SCRIPT_DIR="$INSTALL_DIR"
+fi
+
+# ── Ask project vs global scope (if not set via flag) ────────────────────────
+if ! $GLOBAL && ! $AUTO_YES; then
+  echo ""
+  echo "Install scope:"
+  echo "  [1] Project  ($(pwd)/.claude/skills)"
+  echo "  [2] Global   ($HOME/.claude/skills)"
+  echo ""
+  read -rp "Choice [1/2, default 1]: " scope_choice
+  [[ "$scope_choice" == "2" ]] && GLOBAL=true
 fi
 
 # ── Skill dirs — parallel arrays (bash 3.2 compatible) ───────────────────────
