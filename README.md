@@ -61,10 +61,21 @@ pip install databricks-langchain langgraph mlflow databricks-agents databricks-s
 
 The installer automatically downloads our skills **and all dependencies** (databricks ai-dev-kit skills + langchain-skills). At the end it will ask whether to configure MCP servers.
 
-### Quick install (Claude Code — project scope)
+### Quick install — skills only
 ```bash
 bash <(curl -sL https://raw.githubusercontent.com/alessandro9110/agent-skills/main/install.sh)
 ```
+
+### Install skills + Databricks MCP server
+```bash
+bash <(curl -sL https://raw.githubusercontent.com/alessandro9110/agent-skills/main/install.sh) --with-mcp
+```
+The installer will prompt you for:
+1. **Path to ai-dev-kit repo** — press Enter to auto-clone to `~/.databricks-ai-dev-kit`
+2. **DATABRICKS_HOST** — your workspace URL (e.g. `https://adb-xxx.azuredatabricks.net`)
+3. **DATABRICKS_TOKEN** — your personal access token (press Enter to use `~/.databrickscfg`)
+
+The MCP server is configured automatically in `.claude/settings.json` (or `~/.claude/settings.json` with `--global`).
 
 ### VS Code with Claude Code
 
@@ -72,9 +83,8 @@ bash <(curl -sL https://raw.githubusercontent.com/alessandro9110/agent-skills/ma
 2. Open your project folder in VS Code
 3. Run the installer from the VS Code terminal:
 ```bash
-bash <(curl -sL https://raw.githubusercontent.com/alessandro9110/agent-skills/main/install.sh)
+bash <(curl -sL https://raw.githubusercontent.com/alessandro9110/agent-skills/main/install.sh) --with-mcp
 ```
-Skills are installed into `.claude/skills/` and loaded automatically by Claude Code. When prompted about MCP servers, say `y` to configure `microsoft-learn` (HTTP, no extra setup) and/or `databricks` (requires `uv` and a local clone of [ai-dev-kit](https://github.com/databricks-solutions/ai-dev-kit)).
 
 ### Install for multiple tools
 ```bash
