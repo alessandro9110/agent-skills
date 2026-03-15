@@ -16,45 +16,51 @@ error()   { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
 # ── Arrow-key menu selector ──────────────────────────────────────────────────
 # Usage: arrow_select "Prompt text" "Option A" "Option B" ...
 # Result: SELECTED_INDEX (0-based)
-# All I/O is forced through /dev/tty so it works even with stdin piped
-# (e.g. bash <(curl ...))
+# Forces I/O through /dev/tty so it works even with stdin piped (bash <(curl ...))
+# Safe with set -e: uses if/then instead of (( )) arithmetic for index changes
 arrow_select() {
   local prompt="$1"; shift
   local options=("$@")
   local idx=0 n=${#options[@]}
   local tty=/dev/tty
 
+  # Graceful fallback if no terminal available
+  if [[ ! -c "$tty" ]]; then SELECTED_INDEX=0; return; fi
+
   _as_draw() {
-    for i in "${!options[@]}"; do
+    local i
+    for ((i=0; i<n; i++)); do
       if [[ $i -eq $idx ]]; then
-        printf "  \033[32m▶ %s\033[0m\n" "${options[$i]}" >"$tty"
+        printf "  \033[32m▶ %s\033[0m\n" "${options[$i]}"
       else
-        printf "    %s\n" "${options[$i]}" >"$tty"
+        printf "    %s\n" "${options[$i]}"
       fi
     done
   }
 
-  printf "\033[?25l\n" >"$tty"          # hide cursor
-  printf "%b\n" "$prompt" >"$tty"
-  _as_draw
+  printf "\033[?25l" >"$tty"    # hide cursor
+  printf "%s\n" "$prompt" >"$tty"
+  _as_draw >"$tty"
+
   while true; do
     local k
-    IFS= read -rsn1 k <"$tty"
+    IFS= read -rsn1 k <"$tty" || break
     if [[ "$k" == $'\x1b' ]]; then
       local k2 k3
-      IFS= read -rsn1 -t 0.1 k2 <"$tty"
-      IFS= read -rsn1 -t 0.1 k3 <"$tty"
+      IFS= read -rsn1 -t 0.1 k2 <"$tty" || true
+      IFS= read -rsn1 -t 0.1 k3 <"$tty" || true
       case "$k2$k3" in
-        '[A') ((idx > 0)) && ((idx--)) ;;
-        '[B') ((idx < n-1)) && ((idx++)) ;;
+        '[A') if [[ $idx -gt 0 ]]; then idx=$((idx - 1)); fi ;;
+        '[B') if [[ $idx -lt $((n - 1)) ]]; then idx=$((idx + 1)); fi ;;
       esac
     elif [[ -z "$k" ]]; then
       break
     fi
     printf "\033[%dA" "$n" >"$tty"
-    _as_draw
+    _as_draw >"$tty"
   done
-  printf "\033[?25h\n" >"$tty"          # show cursor
+
+  printf "\033[?25h\n" >"$tty"  # show cursor
   SELECTED_INDEX=$idx
 }
 
