@@ -13,6 +13,52 @@ success() { echo -e "${GREEN}[OK]${NC} $1"; }
 warn()    { echo -e "${YELLOW}[WARN]${NC} $1"; }
 error()   { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
 
+# ── Arrow-key menu selector ──────────────────────────────────────────────────
+# Usage: arrow_select "Prompt text" "Option A" "Option B" ...
+# Result: SELECTED_INDEX (0-based)
+arrow_select() {
+  local prompt="$1"; shift
+  local options=("$@")
+  local idx=0 n=${#options[@]}
+
+  _as_draw() {
+    for i in "${!options[@]}"; do
+      if [[ $i -eq $idx ]]; then
+        echo -e "  \033[32m▶ ${options[$i]}\033[0m"
+      else
+        echo    "    ${options[$i]}"
+      fi
+    done
+  }
+
+  tput civis 2>/dev/null
+  echo -e "$prompt"
+  _as_draw
+  while true; do
+    local k; read -rsn1 k
+    if [[ "$k" == $'\x1b' ]]; then
+      local k2 k3
+      read -rsn1 -t 0.1 k2
+      read -rsn1 -t 0.1 k3
+      case "$k2$k3" in
+        '[A') ((idx > 0)) && ((idx--)) ;;
+        '[B') ((idx < n-1)) && ((idx++)) ;;
+      esac
+    elif [[ -z "$k" ]]; then
+      break
+    fi
+    printf "\033[%dA" "$n"
+    _as_draw
+  done
+  tput cnorm 2>/dev/null
+  SELECTED_INDEX=$idx
+}
+
+# Wrapper: skips menu and picks first option when AUTO_YES=true
+prompt_select() {
+  if $AUTO_YES; then SELECTED_INDEX=0; else arrow_select "$@"; fi
+}
+
 # ── Defaults ─────────────────────────────────────────────────────────────────
 GLOBAL=false
 TOOLS="claude"
@@ -63,14 +109,12 @@ else
 fi
 
 # ── Ask project vs global scope (if not set via flag) ────────────────────────
-if ! $GLOBAL && ! $AUTO_YES; then
+if ! $GLOBAL; then
   echo ""
-  echo "Install scope:"
-  echo "  [1] Project  ($(pwd)/.claude/skills)"
-  echo "  [2] Global   ($HOME/.claude/skills)"
-  echo ""
-  read -rp "Choice [1/2, default 1]: " scope_choice
-  [[ "$scope_choice" == "2" ]] && GLOBAL=true
+  prompt_select "Install scope:" \
+    "Project  ($(pwd)/.claude/skills)" \
+    "Global   ($HOME/.claude/skills)"
+  [[ $SELECTED_INDEX -eq 1 ]] && GLOBAL=true
 fi
 
 # ── Skill dirs — parallel arrays (bash 3.2 compatible) ───────────────────────
@@ -333,10 +377,9 @@ for i in "${!SKILL_DIR_TOOLS[@]}"; do
 done
 echo ""
 
-if ! $AUTO_YES; then
-  read -rp "Continue? [Y/n] " confirm
-  [[ "$confirm" =~ ^[Nn]$ ]] && { info "Aborted."; exit 0; }
-fi
+echo ""
+prompt_select "Continue?" "Yes, install" "No, abort"
+[[ $SELECTED_INDEX -eq 1 ]] && { info "Aborted."; exit 0; }
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 install_local_skill() {
@@ -451,7 +494,12 @@ install_mcps() {
       local actual_path=""
 
       if [[ -n "$mcp_auto_clone" ]]; then
-        local default_dir="${mcp_auto_clone_dir/#\~/$HOME}"
+        local default_dir
+        if [[ "$mcp_auto_clone_dir" == ./* || "$mcp_auto_clone_dir" == "." ]]; then
+          default_dir="$(pwd)/${mcp_auto_clone_dir#./}"
+        else
+          default_dir="${mcp_auto_clone_dir/#\~/$HOME}"
+        fi
 
         echo ""
         echo "  MCP '$mcp_name' requires the repository: $mcp_auto_clone"
@@ -553,25 +601,10 @@ if [ ${#MCP_NAMES[@]} -gt 0 ]; then
     info "MCP servers skipped (--yes mode). Re-run without --yes to configure them."
   else
     echo ""
-    echo "What would you like to install?"
-    echo "  [1] Skills only"
-    echo "  [2] Skills + MCP servers (configures live tool access)"
-    echo ""
-    for i in "${!MCP_NAMES[@]}"; do
-      mcp="${MCP_NAMES[$i]}"
-      IFS='|' read -r mcp_type mcp_url mcp_command mcp_args mcp_path_var mcp_path_hint mcp_auto_clone mcp_auto_clone_dir mcp_setup_cmds mcp_env_vars <<< "${MCP_VALUES[$i]}"
-      if [[ "$mcp_type" == "http" ]]; then
-        echo "  • $mcp  (http → $mcp_url)"
-      else
-        echo "  • $mcp  (stdio: $mcp_command)"
-        [ -n "$mcp_auto_clone" ] && echo "    auto-clone: $mcp_auto_clone → ${mcp_auto_clone_dir/#\~/$HOME}"
-        [ -z "$mcp_auto_clone" ] && [ -n "$mcp_path_hint" ] && echo "    requires: $mcp_path_hint"
-        [ -n "$mcp_env_vars" ] && echo "    env: $(echo "$mcp_env_vars" | tr ',' '\n' | sed 's/:.*$//' | paste -sd ',' -)"
-      fi
-    done
-    echo ""
-    read -rp "Choice [1/2]: " install_choice
-    if [[ "$install_choice" == "2" ]]; then
+    prompt_select "What would you like to install?" \
+      "Skills only" \
+      "Skills + MCP servers (configures live tool access)"
+    if [[ $SELECTED_INDEX -eq 1 ]]; then
       install_mcps
     else
       info "Skipping MCP configuration."
