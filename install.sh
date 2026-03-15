@@ -47,8 +47,8 @@ arrow_select() {
     IFS= read -rsn1 k <"$tty" || break
     if [[ "$k" == $'\x1b' ]]; then
       local k2 k3
-      IFS= read -rsn1 -t 0.1 k2 <"$tty" || true
-      IFS= read -rsn1 -t 0.1 k3 <"$tty" || true
+      IFS= read -rsn1 -t 1 k2 <"$tty" || true
+      IFS= read -rsn1 -t 1 k3 <"$tty" || true
       case "$k2$k3" in
         '[A') if [[ $idx -gt 0 ]]; then idx=$((idx - 1)); fi ;;
         '[B') if [[ $idx -lt $((n - 1)) ]]; then idx=$((idx + 1)); fi ;;
