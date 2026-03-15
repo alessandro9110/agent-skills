@@ -16,30 +16,34 @@ error()   { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
 # ── Arrow-key menu selector ──────────────────────────────────────────────────
 # Usage: arrow_select "Prompt text" "Option A" "Option B" ...
 # Result: SELECTED_INDEX (0-based)
+# All I/O is forced through /dev/tty so it works even with stdin piped
+# (e.g. bash <(curl ...))
 arrow_select() {
   local prompt="$1"; shift
   local options=("$@")
   local idx=0 n=${#options[@]}
+  local tty=/dev/tty
 
   _as_draw() {
     for i in "${!options[@]}"; do
       if [[ $i -eq $idx ]]; then
-        echo -e "  \033[32m▶ ${options[$i]}\033[0m"
+        printf "  \033[32m▶ %s\033[0m\n" "${options[$i]}" >"$tty"
       else
-        echo    "    ${options[$i]}"
+        printf "    %s\n" "${options[$i]}" >"$tty"
       fi
     done
   }
 
-  tput civis 2>/dev/null
-  echo -e "$prompt"
+  printf "\033[?25l\n" >"$tty"          # hide cursor
+  printf "%b\n" "$prompt" >"$tty"
   _as_draw
   while true; do
-    local k; read -rsn1 k
+    local k
+    IFS= read -rsn1 k <"$tty"
     if [[ "$k" == $'\x1b' ]]; then
       local k2 k3
-      read -rsn1 -t 0.1 k2
-      read -rsn1 -t 0.1 k3
+      IFS= read -rsn1 -t 0.1 k2 <"$tty"
+      IFS= read -rsn1 -t 0.1 k3 <"$tty"
       case "$k2$k3" in
         '[A') ((idx > 0)) && ((idx--)) ;;
         '[B') ((idx < n-1)) && ((idx++)) ;;
@@ -47,10 +51,10 @@ arrow_select() {
     elif [[ -z "$k" ]]; then
       break
     fi
-    printf "\033[%dA" "$n"
+    printf "\033[%dA" "$n" >"$tty"
     _as_draw
   done
-  tput cnorm 2>/dev/null
+  printf "\033[?25h\n" >"$tty"          # show cursor
   SELECTED_INDEX=$idx
 }
 
