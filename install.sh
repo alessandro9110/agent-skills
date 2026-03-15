@@ -458,8 +458,7 @@ else:  # stdio
     args_list = shlex.split(mcp_args) if mcp_args else []
     entry = {
         "command": mcp_command,
-        "args": args_list,
-        "defer_loading": True
+        "args": args_list
     }
     if mcp_env_json:
         try:
@@ -542,7 +541,12 @@ install_mcps() {
         fi
       fi
 
-      mcp_args="${mcp_args//$mcp_path_var/$actual_path}"
+      # Quote the path if it contains spaces so shlex.split keeps it as one token
+      local quoted_path="$actual_path"
+      if [[ "$actual_path" == *" "* ]]; then
+        quoted_path="\"$actual_path\""
+      fi
+      mcp_args="${mcp_args//$mcp_path_var/$quoted_path}"
     fi
 
     # Collect environment variables (prompt for each KEY:hint pair)
