@@ -159,7 +159,7 @@ EOF
 }
 
 # ── Parse MCP servers from SKILL.md frontmatter ──────────────────────────────
-# Output: "name|type|url|command|args|path_var|path_hint"
+# Output: "name|type|url|command|args|path_var|path_hint|auto_clone|auto_clone_dir|setup_cmds|env_vars"
 parse_mcp_servers() {
   local skill_md="$1"
   python3 - "$skill_md" <<'EOF'
@@ -203,7 +203,15 @@ for line in yaml_block.split('\n'):
             elif 'path_var:' in stripped:
                 current['path_var'] = stripped.split('path_var:')[1].strip()
             elif 'path_hint:' in stripped:
-                current['path_hint'] = stripped.split('path_hint:')[1].strip()
+                current['path_hint'] = stripped.split('path_hint:')[1].strip().strip('"')
+            elif 'auto_clone:' in stripped:
+                current['auto_clone'] = stripped.split('auto_clone:')[1].strip()
+            elif 'auto_clone_dir:' in stripped:
+                current['auto_clone_dir'] = stripped.split('auto_clone_dir:')[1].strip()
+            elif 'setup_cmds:' in stripped:
+                current['setup_cmds'] = stripped.split('setup_cmds:')[1].strip().strip('"')
+            elif 'env_vars:' in stripped:
+                current['env_vars'] = stripped.split('env_vars:')[1].strip().strip('"')
         elif stripped and not stripped.startswith('#') and not re.match(r'^    ', line):
             in_mcp = False
 
@@ -211,15 +219,19 @@ if current:
     servers.append(current)
 
 for s in servers:
-    name      = s.get('name', '')
-    typ       = s.get('type', 'http')
-    url       = s.get('url', '')
-    command   = s.get('command', '')
-    args      = s.get('args', '')
-    path_var  = s.get('path_var', '')
-    path_hint = s.get('path_hint', '')
+    name           = s.get('name', '')
+    typ            = s.get('type', 'http')
+    url            = s.get('url', '')
+    command        = s.get('command', '')
+    args           = s.get('args', '')
+    path_var       = s.get('path_var', '')
+    path_hint      = s.get('path_hint', '')
+    auto_clone     = s.get('auto_clone', '')
+    auto_clone_dir = s.get('auto_clone_dir', '')
+    setup_cmds     = s.get('setup_cmds', '')
+    env_vars       = s.get('env_vars', '')
     if name:
-        print(f"{name}|{typ}|{url}|{command}|{args}|{path_var}|{path_hint}")
+        print(f"{name}|{typ}|{url}|{command}|{args}|{path_var}|{path_hint}|{auto_clone}|{auto_clone_dir}|{setup_cmds}|{env_vars}")
 EOF
 }
 
@@ -262,9 +274,9 @@ for skill_dir in "$SCRIPT_DIR/skills"/*/; do
     info "  Found dependency: $dep_name (from $skill_name)"
   done < <(parse_dependencies "$skill_md")
 
-  while IFS='|' read -r mcp_name mcp_type mcp_url mcp_command mcp_args mcp_path_var mcp_path_hint; do
+  while IFS='|' read -r mcp_name mcp_type mcp_url mcp_command mcp_args mcp_path_var mcp_path_hint mcp_auto_clone mcp_auto_clone_dir mcp_setup_cmds mcp_env_vars; do
     [ -z "$mcp_name" ] && continue
-    set_mcp "$mcp_name" "$mcp_type|$mcp_url|$mcp_command|$mcp_args|$mcp_path_var|$mcp_path_hint"
+    set_mcp "$mcp_name" "$mcp_type|$mcp_url|$mcp_command|$mcp_args|$mcp_path_var|$mcp_path_hint|$mcp_auto_clone|$mcp_auto_clone_dir|$mcp_setup_cmds|$mcp_env_vars"
     info "  Found MCP server: $mcp_name [$mcp_type] (from $skill_name)"
   done < <(parse_mcp_servers "$skill_md")
 done
@@ -294,12 +306,14 @@ if [ ${#MCP_NAMES[@]} -gt 0 ]; then
   echo "MCP servers available (${#MCP_NAMES[@]}):"
   for i in "${!MCP_NAMES[@]}"; do
     mcp="${MCP_NAMES[$i]}"
-    IFS='|' read -r mcp_type mcp_url mcp_command mcp_args mcp_path_var mcp_path_hint <<< "${MCP_VALUES[$i]}"
+    IFS='|' read -r mcp_type mcp_url mcp_command mcp_args mcp_path_var mcp_path_hint mcp_auto_clone mcp_auto_clone_dir mcp_setup_cmds mcp_env_vars <<< "${MCP_VALUES[$i]}"
     if [[ "$mcp_type" == "http" ]]; then
       echo "  • $mcp  (http → $mcp_url)"
     else
-      echo "  • $mcp  (stdio: $mcp_command $mcp_args)"
-      [ -n "$mcp_path_hint" ] && echo "    requires: $mcp_path_hint"
+      echo "  • $mcp  (stdio: $mcp_command)"
+      [ -n "$mcp_auto_clone" ] && echo "    auto-clone: $mcp_auto_clone → ${mcp_auto_clone_dir/#\~/$HOME}"
+      [ -z "$mcp_auto_clone" ] && [ -n "$mcp_path_hint" ] && echo "    requires: $mcp_path_hint"
+      [ -n "$mcp_env_vars" ] && echo "    env: $(echo "$mcp_env_vars" | tr ',' '\n' | sed 's/:.*$//' | paste -sd ',' -)"
     fi
   done
 fi
@@ -360,11 +374,12 @@ configure_mcp_server() {
   local mcp_args="$5"
   local config_file="$6"
   local config_key="$7"
+  local mcp_env_json="${8:-}"   # optional JSON object string, e.g. '{"KEY":"val"}'
 
-  python3 - "$config_file" "$config_key" "$mcp_name" "$mcp_type" "$mcp_url" "$mcp_command" "$mcp_args" <<'EOF'
+  python3 - "$config_file" "$config_key" "$mcp_name" "$mcp_type" "$mcp_url" "$mcp_command" "$mcp_args" "$mcp_env_json" <<'EOF'
 import sys, json, os, shlex
 
-config_file, config_key, mcp_name, mcp_type, mcp_url, mcp_command, mcp_args = sys.argv[1:]
+config_file, config_key, mcp_name, mcp_type, mcp_url, mcp_command, mcp_args, mcp_env_json = sys.argv[1:]
 
 if os.path.exists(config_file):
     with open(config_file) as f:
@@ -380,11 +395,19 @@ if mcp_type == 'http':
     config[config_key][mcp_name] = {"type": "http", "url": mcp_url}
 else:  # stdio
     args_list = shlex.split(mcp_args) if mcp_args else []
-    config[config_key][mcp_name] = {
+    entry = {
         "command": mcp_command,
         "args": args_list,
         "defer_loading": True
     }
+    if mcp_env_json:
+        try:
+            env_dict = json.loads(mcp_env_json)
+            if env_dict:
+                entry["env"] = env_dict
+        except:
+            pass
+    config[config_key][mcp_name] = entry
 
 os.makedirs(os.path.dirname(os.path.abspath(config_file)), exist_ok=True)
 with open(config_file, 'w') as f:
@@ -413,18 +436,75 @@ install_mcps() {
 
   for i in "${!MCP_NAMES[@]}"; do
     local mcp_name="${MCP_NAMES[$i]}"
-    IFS='|' read -r mcp_type mcp_url mcp_command mcp_args mcp_path_var mcp_path_hint <<< "${MCP_VALUES[$i]}"
+    IFS='|' read -r mcp_type mcp_url mcp_command mcp_args mcp_path_var mcp_path_hint mcp_auto_clone mcp_auto_clone_dir mcp_setup_cmds mcp_env_vars <<< "${MCP_VALUES[$i]}"
 
-    # For stdio MCPs with a required path: ask user once, substitute in args
+    # For stdio MCPs with a required path: resolve it (auto-clone or prompt)
     if [[ "$mcp_type" == "stdio" ]] && [[ -n "$mcp_path_var" ]]; then
-      echo ""
-      echo "  MCP '$mcp_name' requires a local path."
-      read -rp "  $mcp_path_hint: " actual_path
-      if [[ -z "$actual_path" ]]; then
-        warn "  No path provided — skipping $mcp_name"
-        continue
+      local actual_path=""
+
+      if [[ -n "$mcp_auto_clone" ]]; then
+        local default_dir="${mcp_auto_clone_dir/#\~/$HOME}"
+
+        if $AUTO_YES; then
+          # Non-interactive: use default dir without prompting
+          actual_path="$default_dir"
+          info "  Auto-clone mode: using $actual_path for $mcp_name"
+        else
+          echo ""
+          echo "  MCP '$mcp_name' requires the repository: $mcp_auto_clone"
+          read -rp "  $mcp_path_hint [$default_dir]: " actual_path
+          [[ -z "$actual_path" ]] && actual_path="$default_dir"
+        fi
+
+        # Clone if not already present
+        if [[ ! -d "$actual_path/.git" ]]; then
+          info "  Cloning $mcp_auto_clone → $actual_path ..."
+          git clone -q "$mcp_auto_clone" "$actual_path" || { warn "  Clone failed — skipping $mcp_name"; continue; }
+          success "  Cloned to $actual_path"
+        else
+          info "  Using existing clone at $actual_path"
+        fi
+
+        # Run setup commands (install packages)
+        if [[ -n "$mcp_setup_cmds" ]]; then
+          info "  Running setup: $mcp_setup_cmds"
+          (cd "$actual_path" && eval "$mcp_setup_cmds") || warn "  Setup commands failed — MCP may not work correctly"
+        fi
+
+      else
+        # No auto-clone: prompt for path manually
+        echo ""
+        echo "  MCP '$mcp_name' requires a local path."
+        read -rp "  $mcp_path_hint: " actual_path
+        if [[ -z "$actual_path" ]]; then
+          warn "  No path provided — skipping $mcp_name"
+          continue
+        fi
       fi
+
       mcp_args="${mcp_args//$mcp_path_var/$actual_path}"
+    fi
+
+    # Collect environment variables (prompt for each KEY:hint pair)
+    local env_json="{}"
+    if [[ -n "$mcp_env_vars" ]]; then
+      echo ""
+      echo "  MCP '$mcp_name' requires Databricks credentials."
+      echo "  (Leave blank to rely on ~/.databrickscfg or existing env vars)"
+      local env_pairs=()
+      IFS=',' read -ra env_items <<< "$mcp_env_vars"
+      for env_item in "${env_items[@]}"; do
+        local env_key="${env_item%%:*}"
+        local env_hint="${env_item#*:}"
+        local env_val=""
+        if ! $AUTO_YES; then
+          read -rp "  $env_key ($env_hint): " env_val
+        fi
+        [[ -n "$env_val" ]] && env_pairs+=("\"$env_key\":\"$env_val\"")
+      done
+      if [[ ${#env_pairs[@]} -gt 0 ]]; then
+        env_json="{$(IFS=','; echo "${env_pairs[*]}")}"
+      fi
     fi
 
     for j in "${!SKILL_DIR_TOOLS[@]}"; do
@@ -443,7 +523,7 @@ install_mcps() {
           copilot) config_file="$(pwd)/.vscode/mcp.json";        config_key="servers" ;;
         esac
       fi
-      configure_mcp_server "$mcp_name" "$mcp_type" "$mcp_url" "$mcp_command" "$mcp_args" "$config_file" "$config_key"
+      configure_mcp_server "$mcp_name" "$mcp_type" "$mcp_url" "$mcp_command" "$mcp_args" "$config_file" "$config_key" "$env_json"
       success "[$tool] MCP configured: $mcp_name → $config_file"
     done
   done
@@ -476,12 +556,14 @@ if [ ${#MCP_NAMES[@]} -gt 0 ]; then
     echo "MCP servers found (${#MCP_NAMES[@]}):"
     for i in "${!MCP_NAMES[@]}"; do
       mcp="${MCP_NAMES[$i]}"
-      IFS='|' read -r mcp_type mcp_url mcp_command mcp_args mcp_path_var mcp_path_hint <<< "${MCP_VALUES[$i]}"
+      IFS='|' read -r mcp_type mcp_url mcp_command mcp_args mcp_path_var mcp_path_hint mcp_auto_clone mcp_auto_clone_dir mcp_setup_cmds mcp_env_vars <<< "${MCP_VALUES[$i]}"
       if [[ "$mcp_type" == "http" ]]; then
         echo "  • $mcp  (http → $mcp_url)"
       else
         echo "  • $mcp  (stdio: $mcp_command)"
-        [ -n "$mcp_path_hint" ] && echo "    requires: $mcp_path_hint"
+        [ -n "$mcp_auto_clone" ] && echo "    auto-clone: $mcp_auto_clone → ${mcp_auto_clone_dir/#\~/$HOME}"
+        [ -z "$mcp_auto_clone" ] && [ -n "$mcp_path_hint" ] && echo "    requires: $mcp_path_hint"
+        [ -n "$mcp_env_vars" ] && echo "    env: $(echo "$mcp_env_vars" | tr ',' '\n' | sed 's/:.*$//' | paste -sd ',' -)"
       fi
     done
     echo ""
@@ -494,18 +576,14 @@ if [ ${#MCP_NAMES[@]} -gt 0 ]; then
     else
       info "Skipping MCP configuration."
       echo ""
-      echo "To configure manually:"
-      for i in "${!MCP_NAMES[@]}"; do
-        mcp="${MCP_NAMES[$i]}"
-        IFS='|' read -r mcp_type mcp_url mcp_command mcp_args mcp_path_var mcp_path_hint <<< "${MCP_VALUES[$i]}"
-        if [[ "$mcp_type" == "http" ]]; then
-          echo "  $mcp: { \"type\": \"http\", \"url\": \"$mcp_url\" }"
-        else
-          echo "  $mcp: { \"command\": \"$mcp_command\", \"args\": [\"$(echo "$mcp_args" | sed 's/ /", "/g')\"] }"
-          [ -n "$mcp_path_hint" ] && echo "    ($mcp_path_hint)"
-        fi
-      done
+      echo "To configure manually, re-run: bash install.sh --with-mcp"
     fi
+  else
+    # AUTO_YES=true, WITH_MCP=false: show notice so user knows MCPs were skipped
+    echo ""
+    warn "MCP servers declared but not configured (${#MCP_NAMES[@]} found)."
+    warn "Re-run with --with-mcp to install and configure them:"
+    warn "  bash install.sh --with-mcp"
   fi
 fi
 

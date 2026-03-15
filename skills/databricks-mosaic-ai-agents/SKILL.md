@@ -2,7 +2,7 @@
 name: databricks-mosaic-ai-agents
 description: Guides building and deploying custom AI agents on Databricks using Mosaic AI Agent Framework with LangGraph or LangChain. Use when creating agents with MLflow tracing, Unity Catalog functions as tools, Vector Search retrieval, or deploying agents via Databricks Asset Bundle jobs. Triggers on phrases like "build agent Databricks", "LangGraph Mosaic AI", "LangChain Databricks agent", "deploy agent MLflow", "UC function tool", "agent asset bundle", "Databricks agent job deployment", "Mosaic AI LangGraph".
 license: MIT
-compatibility: Requires Databricks workspace with Unity Catalog, MLflow 3.1.3+, databricks-langchain, langgraph or langchain, databricks-agents SDK. MCP server requires uv (install: curl -LsSf https://astral.sh/uv/install.sh | sh) and a local clone of databricks-solutions/ai-dev-kit. Works with Claude Code, Claude Desktop, VS Code with GitHub Copilot, and Cursor. Complements databricks-asset-bundles and langgraph-fundamentals skills.
+compatibility: Requires Databricks workspace with Unity Catalog, MLflow 3.1.3+, databricks-langchain, langgraph or langchain, databricks-agents SDK. MCP server requires uv (install: curl -LsSf https://astral.sh/uv/install.sh | sh) — the ai-dev-kit repo is auto-cloned to ~/.databricks-ai-dev-kit during install. Works with Claude Code, Claude Desktop, VS Code with GitHub Copilot, and Cursor. Complements databricks-asset-bundles and langgraph-fundamentals skills.
 metadata:
   author: Alessandro Armillotta
   version: 1.0.0
@@ -51,7 +51,11 @@ metadata:
       command: uv
       args: run --directory AI_DEV_KIT_PATH python databricks-mcp-server/run_server.py
       path_var: AI_DEV_KIT_PATH
-      path_hint: Path to cloned databricks-solutions/ai-dev-kit repo
+      path_hint: "Path to ai-dev-kit repo (press Enter to auto-clone to ~/.databricks-ai-dev-kit)"
+      auto_clone: https://github.com/databricks-solutions/ai-dev-kit.git
+      auto_clone_dir: ~/.databricks-ai-dev-kit
+      setup_cmds: "uv pip install -e ./databricks-tools-core && uv pip install -e ./databricks-mcp-server"
+      env_vars: "DATABRICKS_HOST:Databricks workspace URL (e.g. https://adb-xxx.azuredatabricks.net),DATABRICKS_TOKEN:Personal access token (leave empty to use ~/.databrickscfg profile)"
 ---
 
 # Databricks Mosaic AI Agents
