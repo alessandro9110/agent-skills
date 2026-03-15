@@ -445,16 +445,10 @@ install_mcps() {
       if [[ -n "$mcp_auto_clone" ]]; then
         local default_dir="${mcp_auto_clone_dir/#\~/$HOME}"
 
-        if $AUTO_YES; then
-          # Non-interactive: use default dir without prompting
-          actual_path="$default_dir"
-          info "  Auto-clone mode: using $actual_path for $mcp_name"
-        else
-          echo ""
-          echo "  MCP '$mcp_name' requires the repository: $mcp_auto_clone"
-          read -rp "  $mcp_path_hint [$default_dir]: " actual_path
-          [[ -z "$actual_path" ]] && actual_path="$default_dir"
-        fi
+        echo ""
+        echo "  MCP '$mcp_name' requires the repository: $mcp_auto_clone"
+        read -rp "  $mcp_path_hint [$default_dir]: " actual_path
+        [[ -z "$actual_path" ]] && actual_path="$default_dir"
 
         # Clone if not already present
         if [[ ! -d "$actual_path/.git" ]]; then
@@ -497,9 +491,7 @@ install_mcps() {
         local env_key="${env_item%%:*}"
         local env_hint="${env_item#*:}"
         local env_val=""
-        if ! $AUTO_YES; then
-          read -rp "  $env_key ($env_hint): " env_val
-        fi
+        read -rp "  $env_key ($env_hint): " env_val
         [[ -n "$env_val" ]] && env_pairs+=("\"$env_key\":\"$env_val\"")
       done
       if [[ ${#env_pairs[@]} -gt 0 ]]; then
