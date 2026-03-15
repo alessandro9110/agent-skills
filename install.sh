@@ -566,13 +566,17 @@ install_mcps() {
         # ── Option A: ~/.databrickscfg via CLI ──────────────────────────────
         printf "  Workspace URL (e.g. https://adb-xxx.azuredatabricks.net): "
         IFS= read -r host_val </dev/tty
+        local profile_name="DEFAULT"
+        printf "  Profile name [DEFAULT]: "
+        IFS= read -r profile_input </dev/tty
+        [[ -n "$profile_input" ]] && profile_name="$profile_input"
         if [[ -n "$host_val" ]]; then
-          info "  Running: databricks auth login --host $host_val"
-          databricks auth login --host "$host_val" </dev/tty >/dev/tty 2>/dev/tty \
-            && success "  Authentication successful" \
-            || warn "  Auth login failed — re-run manually: databricks auth login --host $host_val"
+          info "  Running: databricks auth login --host $host_val --profile $profile_name"
+          databricks auth login --host "$host_val" --profile "$profile_name" </dev/tty >/dev/tty 2>/dev/tty \
+            && success "  Authentication successful (profile: $profile_name)" \
+            || warn "  Auth login failed — re-run manually: databricks auth login --host $host_val --profile $profile_name"
         fi
-        env_json="{\"DATABRICKS_CONFIG_PROFILE\":\"DEFAULT\"}"
+        env_json="{\"DATABRICKS_CONFIG_PROFILE\":\"$profile_name\"}"
 
       else
         # ── Option B: shell environment variables ───────────────────────────
