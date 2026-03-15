@@ -480,114 +480,113 @@ install_mcps() {
   echo ""
   info "Configuring MCP servers..."
 
-  # Check if uv is needed and available
-  local needs_uv=false
-  for i in "${!MCP_NAMES[@]}"; do
-    local _type _url _cmd _args _pvar _phint
-    IFS='|' read -r _type _url _cmd _args _pvar _phint <<< "${MCP_VALUES[$i]}"
-    [[ "$_type" == "stdio" && "$_cmd" == "uv" ]] && needs_uv=true && break
-  done
-  if $needs_uv && ! command -v uv >/dev/null 2>&1; then
-    warn "uv is required for one or more MCP servers but is not installed."
-    warn "Install it with: curl -LsSf https://astral.sh/uv/install.sh | sh"
-    warn "Skipping MCP configuration."
-    return
-  fi
-
   for i in "${!MCP_NAMES[@]}"; do
     local mcp_name="${MCP_NAMES[$i]}"
     IFS='|' read -r mcp_type mcp_url mcp_command mcp_args mcp_path_var mcp_path_hint mcp_auto_clone mcp_auto_clone_dir mcp_setup_cmds mcp_env_vars <<< "${MCP_VALUES[$i]}"
 
-    # For stdio MCPs with a required path: resolve it (auto-clone or prompt)
-    if [[ "$mcp_type" == "stdio" ]] && [[ -n "$mcp_path_var" ]]; then
-      local actual_path=""
+    # ── stdio MCP with auto_clone: use ai-dev-kit standard setup ────────────
+    if [[ "$mcp_type" == "stdio" ]] && [[ -n "$mcp_auto_clone" ]]; then
+      local ai_dir="$HOME/.ai-dev-kit"
+      local repo_dir="$ai_dir/repo"
+      local venv_dir="$ai_dir/.venv"
+      local venv_python="$venv_dir/bin/python"
 
-      if [[ -n "$mcp_auto_clone" ]]; then
-        local default_dir
-        if [[ "$mcp_auto_clone_dir" == ./* || "$mcp_auto_clone_dir" == "." ]]; then
-          default_dir="$(pwd)/${mcp_auto_clone_dir#./}"
-        else
-          default_dir="${mcp_auto_clone_dir/#\~/$HOME}"
-        fi
-
-        echo ""
-        echo "  MCP '$mcp_name' requires the repository: $mcp_auto_clone"
-        read -rp "  $mcp_path_hint [$default_dir]: " actual_path
-        [[ -z "$actual_path" ]] && actual_path="$default_dir"
-
-        # Clone if not already present
-        if [[ ! -d "$actual_path/.git" ]]; then
-          info "  Cloning $mcp_auto_clone → $actual_path ..."
-          git clone -q "$mcp_auto_clone" "$actual_path" || { warn "  Clone failed — skipping $mcp_name"; continue; }
-          success "  Cloned to $actual_path"
-        else
-          info "  Using existing clone at $actual_path"
-        fi
-
-        # Run setup commands (install packages)
-        if [[ -n "$mcp_setup_cmds" ]]; then
-          info "  Running setup: $mcp_setup_cmds"
-          (cd "$actual_path" && eval "$mcp_setup_cmds") || warn "  Setup commands failed — MCP may not work correctly"
-        fi
-
-      else
-        # No auto-clone: prompt for path manually
-        echo ""
-        echo "  MCP '$mcp_name' requires a local path."
-        read -rp "  $mcp_path_hint: " actual_path
-        if [[ -z "$actual_path" ]]; then
-          warn "  No path provided — skipping $mcp_name"
-          continue
-        fi
-      fi
-
-      # Quote the path if it contains spaces so shlex.split keeps it as one token
-      local quoted_path="$actual_path"
-      if [[ "$actual_path" == *" "* ]]; then
-        quoted_path="\"$actual_path\""
-      fi
-      mcp_args="${mcp_args//$mcp_path_var/$quoted_path}"
-    fi
-
-    # Collect environment variables (prompt for each KEY:hint pair)
-    local env_json="{}"
-    if [[ -n "$mcp_env_vars" ]]; then
+      # 1. Clone or update repo
       echo ""
-      echo "  MCP '$mcp_name' requires Databricks credentials."
-      echo "  (Leave blank to rely on ~/.databrickscfg or existing env vars)"
-      local env_pairs=()
-      IFS=',' read -ra env_items <<< "$mcp_env_vars"
-      for env_item in "${env_items[@]}"; do
-        local env_key="${env_item%%:*}"
-        local env_hint="${env_item#*:}"
-        local env_val=""
-        read -rp "  $env_key ($env_hint): " env_val
-        [[ -n "$env_val" ]] && env_pairs+=("\"$env_key\":\"$env_val\"")
-      done
-      if [[ ${#env_pairs[@]} -gt 0 ]]; then
-        env_json="{$(IFS=','; echo "${env_pairs[*]}")}"
-      fi
-    fi
-
-    for j in "${!SKILL_DIR_TOOLS[@]}"; do
-      local tool="${SKILL_DIR_TOOLS[$j]}"
-      local config_file config_key
-      if $GLOBAL; then
-        case $tool in
-          claude)  config_file="$HOME/.claude/settings.json";  config_key="mcpServers" ;;
-          cursor)  config_file="$HOME/.cursor/mcp.json";        config_key="mcpServers" ;;
-          copilot) config_file="$HOME/.vscode/mcp.json";        config_key="servers" ;;
-        esac
+      if [[ -d "$repo_dir/.git" ]]; then
+        info "  Updating ai-dev-kit at $repo_dir ..."
+        git -C "$repo_dir" pull -q || warn "  Update failed, continuing with existing version"
       else
-        case $tool in
-          claude)  config_file="$(pwd)/.claude/settings.json";  config_key="mcpServers" ;;
-          cursor)  config_file="$(pwd)/.cursor/mcp.json";        config_key="mcpServers" ;;
-          copilot) config_file="$(pwd)/.vscode/mcp.json";        config_key="servers" ;;
-        esac
+        info "  Cloning $mcp_auto_clone → $repo_dir ..."
+        git clone -q "$mcp_auto_clone" "$repo_dir" || { warn "  Clone failed — skipping $mcp_name"; continue; }
+        success "  Cloned to $repo_dir"
       fi
-      configure_mcp_server "$mcp_name" "$mcp_type" "$mcp_url" "$mcp_command" "$mcp_args" "$config_file" "$config_key" "$env_json"
-      success "[$tool] MCP configured: $mcp_name → $config_file"
-    done
+
+      # 2. Create venv (prefer uv, fallback to python3)
+      info "  Setting up Python environment at $venv_dir ..."
+      if command -v uv >/dev/null 2>&1; then
+        uv venv --python 3.11 --allow-existing "$venv_dir" >/dev/null 2>&1 || \
+        uv venv --allow-existing "$venv_dir" >/dev/null 2>&1
+        uv pip install --python "$venv_python" -q \
+          -e "$repo_dir/databricks-tools-core" \
+          -e "$repo_dir/databricks-mcp-server" || warn "  Package install failed"
+      else
+        python3 -m venv "$venv_dir"
+        "$venv_python" -m pip install -q \
+          -e "$repo_dir/databricks-tools-core" \
+          -e "$repo_dir/databricks-mcp-server" || warn "  Package install failed"
+      fi
+      success "  Python environment ready"
+
+      # 3. Ask for Databricks auth (profile from ~/.databrickscfg or token)
+      echo ""
+      echo "  Databricks authentication:"
+      echo "  Leave PROFILE blank to use token-based auth instead."
+      local profile_val token_val host_val
+      read -rp "  DATABRICKS_CONFIG_PROFILE [DEFAULT]: " profile_val
+      if [[ -z "$profile_val" ]]; then
+        read -rp "  DATABRICKS_HOST (e.g. https://adb-xxx.azuredatabricks.net): " host_val
+        read -rp "  DATABRICKS_TOKEN: " token_val
+      fi
+
+      # Build env JSON
+      local env_json="{}"
+      if [[ -n "$profile_val" ]]; then
+        env_json="{\"DATABRICKS_CONFIG_PROFILE\":\"$profile_val\"}"
+      elif [[ -n "$host_val" ]]; then
+        env_json="{\"DATABRICKS_HOST\":\"$host_val\",\"DATABRICKS_TOKEN\":\"$token_val\"}"
+      else
+        env_json="{\"DATABRICKS_CONFIG_PROFILE\":\"DEFAULT\"}"
+      fi
+
+      # 4. Override command/args with venv Python (same pattern as ai-dev-kit)
+      mcp_command="$venv_python"
+      mcp_args="$repo_dir/databricks-mcp-server/run_server.py"
+
+      # 5. Write .mcp.json (project) or ~/.claude/settings.json (global)
+      for j in "${!SKILL_DIR_TOOLS[@]}"; do
+        local tool="${SKILL_DIR_TOOLS[$j]}"
+        local config_file config_key
+        if $GLOBAL; then
+          case $tool in
+            claude)  config_file="$HOME/.claude/settings.json"; config_key="mcpServers" ;;
+            cursor)  config_file="$HOME/.cursor/mcp.json";      config_key="mcpServers" ;;
+            copilot) config_file="$HOME/.vscode/mcp.json";      config_key="servers" ;;
+          esac
+        else
+          case $tool in
+            claude)  config_file="$(pwd)/.mcp.json";       config_key="mcpServers" ;;
+            cursor)  config_file="$(pwd)/.cursor/mcp.json"; config_key="mcpServers" ;;
+            copilot) config_file="$(pwd)/.vscode/mcp.json"; config_key="servers" ;;
+          esac
+        fi
+        configure_mcp_server "$mcp_name" "$mcp_type" "$mcp_url" "$mcp_command" "$mcp_args" "$config_file" "$config_key" "$env_json"
+        success "[$tool] MCP configured: $mcp_name → $config_file"
+      done
+
+    # ── HTTP MCP or stdio without auto_clone ─────────────────────────────────
+    else
+      local env_json="{}"
+      for j in "${!SKILL_DIR_TOOLS[@]}"; do
+        local tool="${SKILL_DIR_TOOLS[$j]}"
+        local config_file config_key
+        if $GLOBAL; then
+          case $tool in
+            claude)  config_file="$HOME/.claude/settings.json"; config_key="mcpServers" ;;
+            cursor)  config_file="$HOME/.cursor/mcp.json";      config_key="mcpServers" ;;
+            copilot) config_file="$HOME/.vscode/mcp.json";      config_key="servers" ;;
+          esac
+        else
+          case $tool in
+            claude)  config_file="$(pwd)/.mcp.json";       config_key="mcpServers" ;;
+            cursor)  config_file="$(pwd)/.cursor/mcp.json"; config_key="mcpServers" ;;
+            copilot) config_file="$(pwd)/.vscode/mcp.json"; config_key="servers" ;;
+          esac
+        fi
+        configure_mcp_server "$mcp_name" "$mcp_type" "$mcp_url" "$mcp_command" "$mcp_args" "$config_file" "$config_key" "$env_json"
+        success "[$tool] MCP configured: $mcp_name → $config_file"
+      done
+    fi
   done
 }
 

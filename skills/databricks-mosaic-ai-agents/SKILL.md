@@ -48,14 +48,9 @@ metadata:
   mcp_servers:
     - name: databricks
       type: stdio
-      command: uv
-      args: run --directory AI_DEV_KIT_PATH python databricks-mcp-server/run_server.py
-      path_var: AI_DEV_KIT_PATH
-      path_hint: "Path to ai-dev-kit repo (Enter to auto-clone into project)"
+      command: ~/.ai-dev-kit/.venv/bin/python
+      args: ~/.ai-dev-kit/repo/databricks-mcp-server/run_server.py
       auto_clone: https://github.com/databricks-solutions/ai-dev-kit.git
-      auto_clone_dir: ./ai-dev-kit
-      setup_cmds: "uv pip install -e ./databricks-tools-core && uv pip install -e ./databricks-mcp-server"
-      env_vars: "DATABRICKS_HOST:Databricks workspace URL (e.g. https://adb-xxx.azuredatabricks.net),DATABRICKS_TOKEN:Personal access token (leave empty to use ~/.databrickscfg profile)"
 ---
 
 # Databricks Mosaic AI Agents
