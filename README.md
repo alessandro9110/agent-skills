@@ -61,16 +61,19 @@ pip install databricks-langchain langgraph mlflow databricks-agents databricks-s
 
 The installer automatically downloads our skills **and all dependencies** (databricks ai-dev-kit skills + langchain-skills). At the end it will ask whether to configure MCP servers.
 
-### Quick install — skills only
+### Quick install
 ```bash
 bash <(curl -sL https://raw.githubusercontent.com/alessandro9110/agent-skills/main/install.sh)
 ```
 
-### Install skills + Databricks MCP server
-```bash
-bash <(curl -sL https://raw.githubusercontent.com/alessandro9110/agent-skills/main/install.sh) --with-mcp
+The installer is fully interactive — it will ask you at the end:
 ```
-The installer will prompt you for:
+What would you like to install?
+  [1] Skills only
+  [2] Skills + MCP servers (configures live tool access)
+```
+
+If you choose **[2]**, it will prompt you for:
 1. **Path to ai-dev-kit repo** — press Enter to auto-clone to `~/.databricks-ai-dev-kit`
 2. **DATABRICKS_HOST** — your workspace URL (e.g. `https://adb-xxx.azuredatabricks.net`)
 3. **DATABRICKS_TOKEN** — your personal access token (press Enter to use `~/.databrickscfg`)
@@ -83,7 +86,7 @@ The MCP server is configured automatically in `.claude/settings.json` (or `~/.cl
 2. Open your project folder in VS Code
 3. Run the installer from the VS Code terminal:
 ```bash
-bash <(curl -sL https://raw.githubusercontent.com/alessandro9110/agent-skills/main/install.sh) --with-mcp
+bash <(curl -sL https://raw.githubusercontent.com/alessandro9110/agent-skills/main/install.sh)
 ```
 
 ### Install for multiple tools
@@ -98,8 +101,7 @@ bash install.sh --tools claude,cursor,copilot
 ```
 --global, -g         Install globally (~/.claude/skills, ~/.cursor/rules, etc.)
 --tools, -t TOOLS    Tools to install for: claude,cursor,copilot (default: claude)
---yes, -y            Skip confirmation prompts
---with-mcp           Configure MCP servers without prompting
+--yes, -y            Skip confirmation prompts (installs skills only, no MCP)
 ```
 
 ### What gets installed

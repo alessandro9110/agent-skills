@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Agent Skills Installer
 # Installs our skills + all external dependencies declared in each SKILL.md frontmatter.
-# Optionally configures MCP servers (http and stdio) declared in each SKILL.md.
-# Usage: bash install.sh [--global] [--tools claude,cursor,copilot] [--yes] [--with-mcp]
+# Asks interactively whether to also configure MCP servers.
+# Usage: bash install.sh [--global] [--tools claude,cursor,copilot] [--yes]
 
 set -e
 
@@ -16,8 +16,7 @@ error()   { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
 # ── Defaults ─────────────────────────────────────────────────────────────────
 GLOBAL=false
 TOOLS="claude"
-AUTO_YES=true
-WITH_MCP=false
+AUTO_YES=false
 SCRIPT_DIR=""  # resolved below after dependency checks
 
 # ── Parse args ───────────────────────────────────────────────────────────────
@@ -26,15 +25,13 @@ while [[ $# -gt 0 ]]; do
     --global|-g)   GLOBAL=true; shift ;;
     --tools|-t)    TOOLS="$2"; shift 2 ;;
     --yes|-y)      AUTO_YES=true; shift ;;
-    --with-mcp)    WITH_MCP=true; shift ;;
     --help|-h)
-      echo "Usage: bash install.sh [--global] [--tools claude,cursor,copilot] [--yes] [--with-mcp]"
+      echo "Usage: bash install.sh [--global] [--tools claude,cursor,copilot] [--yes]"
       echo ""
       echo "Options:"
       echo "  --global, -g         Install globally (~/.claude/skills, ~/.cursor/rules, etc.)"
       echo "  --tools, -t TOOLS    Comma-separated: claude,cursor,copilot (default: claude)"
-      echo "  --yes, -y            Skip confirmation prompts"
-      echo "  --with-mcp           Configure MCP servers without prompting"
+      echo "  --yes, -y            Skip confirmation prompts (installs skills only, no MCP)"
       exit 0 ;;
     *) warn "Unknown option: $1"; shift ;;
   esac
@@ -539,13 +536,16 @@ if [ ${#DEP_NAMES[@]} -gt 0 ]; then
   done
 fi
 
-# ── Configure MCP servers (optional) ─────────────────────────────────────────
+# ── Configure MCP servers ─────────────────────────────────────────────────────
 if [ ${#MCP_NAMES[@]} -gt 0 ]; then
-  if $WITH_MCP; then
-    install_mcps
-  elif ! $AUTO_YES; then
+  if $AUTO_YES; then
+    info "MCP servers skipped (--yes mode). Re-run without --yes to configure them."
+  else
     echo ""
-    echo "MCP servers found (${#MCP_NAMES[@]}):"
+    echo "What would you like to install?"
+    echo "  [1] Skills only"
+    echo "  [2] Skills + MCP servers (configures live tool access)"
+    echo ""
     for i in "${!MCP_NAMES[@]}"; do
       mcp="${MCP_NAMES[$i]}"
       IFS='|' read -r mcp_type mcp_url mcp_command mcp_args mcp_path_var mcp_path_hint mcp_auto_clone mcp_auto_clone_dir mcp_setup_cmds mcp_env_vars <<< "${MCP_VALUES[$i]}"
@@ -559,23 +559,12 @@ if [ ${#MCP_NAMES[@]} -gt 0 ]; then
       fi
     done
     echo ""
-    echo "Configuring MCP servers lets skills call live APIs and tools"
-    echo "when running in VS Code, Cursor, or Claude Code with MCP enabled."
-    echo ""
-    read -rp "Configure MCP servers? [y/N] " mcp_confirm
-    if [[ "$mcp_confirm" =~ ^[Yy]$ ]]; then
+    read -rp "Choice [1/2]: " install_choice
+    if [[ "$install_choice" == "2" ]]; then
       install_mcps
     else
       info "Skipping MCP configuration."
-      echo ""
-      echo "To configure manually, re-run: bash install.sh --with-mcp"
     fi
-  else
-    # AUTO_YES=true, WITH_MCP=false: show notice so user knows MCPs were skipped
-    echo ""
-    warn "MCP servers declared but not configured (${#MCP_NAMES[@]} found)."
-    warn "Re-run with --with-mcp to install and configure them:"
-    warn "  bash install.sh --with-mcp"
   fi
 fi
 
