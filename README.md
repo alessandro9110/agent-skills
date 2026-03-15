@@ -80,12 +80,17 @@ What would you like to install?
   [2] Skills + MCP servers (configures live tool access)
 ```
 
-If you choose **[2]**, it will prompt you for:
-1. **Path to ai-dev-kit repo** — press Enter to auto-clone to `~/.databricks-ai-dev-kit`
-2. **DATABRICKS_HOST** — your workspace URL (e.g. `https://adb-xxx.azuredatabricks.net`)
-3. **DATABRICKS_TOKEN** — your personal access token (press Enter to use `~/.databrickscfg`)
+If you choose **[2]**, it will prompt you to authenticate with Databricks:
 
-The MCP server is configured automatically in `.claude/settings.json` (or `~/.claude/settings.json` with `--global`).
+- **Databricks CLI login (recommended)** — runs `databricks auth login --host <url>` which opens a browser for OAuth and handles token refresh automatically. Requires the [Databricks CLI](https://docs.databricks.com/dev-tools/cli/install.html) to be installed.
+- **Manual token** — enter `DATABRICKS_HOST` and `DATABRICKS_TOKEN` directly.
+
+The ai-dev-kit repo is auto-cloned to `~/.ai-dev-kit/` and the MCP server is configured in `.mcp.json` (project scope) or `~/.claude/settings.json` (global).
+
+> **Token expired?** Re-run authentication at any time:
+> ```bash
+> databricks auth login --host https://<your-workspace>.azuredatabricks.net
+> ```
 
 ### VS Code with Claude Code
 

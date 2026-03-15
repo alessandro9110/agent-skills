@@ -94,9 +94,39 @@ while [[ $# -gt 0 ]]; do
 done
 
 # ── Check dependencies ───────────────────────────────────────────────────────
-command -v curl >/dev/null 2>&1 || error "curl is required but not installed."
-command -v python3 >/dev/null 2>&1 || error "python3 is required but not installed."
-command -v git >/dev/null 2>&1 || error "git is required but not installed."
+HAS_UV=false
+HAS_DATABRICKS=false
+
+echo ""
+echo "Checking prerequisites..."
+echo ""
+
+_check() {
+  local name="$1" cmd="$2" install_hint="$3"
+  if command -v "$cmd" >/dev/null 2>&1; then
+    printf "  ${GREEN}✓${NC} %-20s %s\n" "$name" "$(command -v "$cmd")"
+    return 0
+  else
+    printf "  ${RED}✗${NC} %-20s not found\n" "$name"
+    [[ -n "$install_hint" ]] && printf "    Install: %s\n" "$install_hint"
+    return 1
+  fi
+}
+
+_check "curl"       curl       "" \
+  || error "curl is required but not installed."
+_check "python3"    python3    "" \
+  || error "python3 is required but not installed."
+_check "git"        git        "" \
+  || error "git is required but not installed."
+_check "uv"         uv         "curl -LsSf https://astral.sh/uv/install.sh | sh" \
+  && HAS_UV=true \
+  || warn "uv not found — will fall back to python3 -m venv (slower)"
+_check "databricks" databricks "brew tap databricks/tap && brew install databricks" \
+  && HAS_DATABRICKS=true \
+  || true   # non-fatal: Option A auth won't be offered
+
+echo ""
 
 # ── Resolve repo (clone/update if run via pipe, use local if run from clone) ──
 REPO_URL="https://github.com/alessandro9110/agent-skills.git"
@@ -504,7 +534,7 @@ install_mcps() {
 
       # 2. Create venv (prefer uv, fallback to python3)
       info "  Setting up Python environment at $venv_dir ..."
-      if command -v uv >/dev/null 2>&1; then
+      if $HAS_UV; then
         uv venv --python 3.11 --allow-existing "$venv_dir" >/dev/null 2>&1 || \
         uv venv --allow-existing "$venv_dir" >/dev/null 2>&1
         uv pip install --python "$venv_python" -q \
@@ -518,25 +548,71 @@ install_mcps() {
       fi
       success "  Python environment ready"
 
-      # 3. Ask for Databricks auth (profile from ~/.databrickscfg or token)
+      # 3. Databricks authentication
       echo ""
-      echo "  Databricks authentication:"
-      echo "  Leave PROFILE blank to use token-based auth instead."
-      local profile_val token_val host_val
-      read -rp "  DATABRICKS_CONFIG_PROFILE [DEFAULT]: " profile_val
-      if [[ -z "$profile_val" ]]; then
-        read -rp "  DATABRICKS_HOST (e.g. https://adb-xxx.azuredatabricks.net): " host_val
-        read -rp "  DATABRICKS_TOKEN: " token_val
+      info "  Databricks authentication"
+      local host_val="" token_val="" env_json="{}" use_config_file=true
+
+      if $HAS_DATABRICKS; then
+        prompt_select "  How would you like to authenticate with Databricks?" \
+          "Use ~/.databrickscfg (run databricks auth login)" \
+          "Set environment variables (DATABRICKS_HOST + TOKEN)"
+      else
+        warn "  Databricks CLI not found — using environment variables."
+        SELECTED_INDEX=1
       fi
 
-      # Build env JSON
-      local env_json="{}"
-      if [[ -n "$profile_val" ]]; then
-        env_json="{\"DATABRICKS_CONFIG_PROFILE\":\"$profile_val\"}"
-      elif [[ -n "$host_val" ]]; then
-        env_json="{\"DATABRICKS_HOST\":\"$host_val\",\"DATABRICKS_TOKEN\":\"$token_val\"}"
-      else
+      if [[ $SELECTED_INDEX -eq 0 ]]; then
+        # ── Option A: ~/.databrickscfg via CLI ──────────────────────────────
+        printf "  Workspace URL (e.g. https://adb-xxx.azuredatabricks.net): "
+        IFS= read -r host_val </dev/tty
+        if [[ -n "$host_val" ]]; then
+          info "  Running: databricks auth login --host $host_val"
+          databricks auth login --host "$host_val" </dev/tty >/dev/tty 2>/dev/tty \
+            && success "  Authentication successful" \
+            || warn "  Auth login failed — re-run manually: databricks auth login --host $host_val"
+        fi
         env_json="{\"DATABRICKS_CONFIG_PROFILE\":\"DEFAULT\"}"
+
+      else
+        # ── Option B: shell environment variables ───────────────────────────
+        use_config_file=false
+        printf "  DATABRICKS_HOST (e.g. https://adb-xxx.azuredatabricks.net): "
+        IFS= read -r host_val </dev/tty
+        printf "  DATABRICKS_TOKEN: "
+        IFS= read -r token_val </dev/tty
+
+        # Detect shell profile file
+        local shell_profile
+        if   [[ -f "$HOME/.zprofile"     ]]; then shell_profile="$HOME/.zprofile"
+        elif [[ -f "$HOME/.zshrc"        ]]; then shell_profile="$HOME/.zshrc"
+        elif [[ -f "$HOME/.bash_profile" ]]; then shell_profile="$HOME/.bash_profile"
+        else                                      shell_profile="$HOME/.bashrc"
+        fi
+
+        # Append exports (skip if already present)
+        if [[ -n "$host_val" ]]; then
+          if ! grep -q "DATABRICKS_HOST" "$shell_profile" 2>/dev/null; then
+            { echo ""; echo "# Databricks credentials (added by agent-skills installer)";
+              echo "export DATABRICKS_HOST=\"$host_val\""; } >> "$shell_profile"
+            success "  Wrote DATABRICKS_HOST to $shell_profile"
+          else
+            warn "  DATABRICKS_HOST already in $shell_profile — skipping (edit manually if needed)"
+          fi
+        fi
+        if [[ -n "$token_val" ]]; then
+          if ! grep -q "DATABRICKS_TOKEN" "$shell_profile" 2>/dev/null; then
+            echo "export DATABRICKS_TOKEN=\"$token_val\"" >> "$shell_profile"
+            success "  Wrote DATABRICKS_TOKEN to $shell_profile"
+          else
+            warn "  DATABRICKS_TOKEN already in $shell_profile — skipping"
+          fi
+        fi
+
+        env_json="{}"   # no secrets in .mcp.json
+        echo ""
+        warn "  Restart your terminal and Claude Code for env vars to take effect."
+        echo "  Or run: source $shell_profile"
       fi
 
       # 4. Override command/args with venv Python (same pattern as ai-dev-kit)
